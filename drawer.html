@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Applica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="drawer.css" />
+</head>
+<body>
+  <div id="app">
+
+    <section class="drawer-section" id="login-section" hidden>
+      <h2 class="drawer-heading">Sign in</h2>
+      <p class="drawer-hint">Sign in opens in a new tab. After signing in you’ll be redirected back and that tab will close.</p>
+      <button type="button" class="btn btn-secondary" id="open-login-tab">Sign in</button>
+    </section>
+
+    <section class="drawer-section" id="score-queue-section" hidden>
+      <h2 class="drawer-heading">Score queue</h2>
+      <label for="applica-persona-picker" class="drawer-label">Persona</label>
+      <select id="applica-persona-picker" class="drawer-select" aria-label="Select persona">
+        <option value="">Loading…</option>
+      </select>
+      <p class="drawer-hint">Job URLs you are tracking</p>
+      <div id="score-queue-list"></div>
+    </section>
+
+    <section class="drawer-section" id="signed-in-section" hidden>
+      <h2 class="drawer-heading">Signed in</h2>
+      <p class="drawer-hint" id="signed-in-email"></p>
+      <button type="button" class="btn btn-ghost" id="sign-out-btn">Sign out</button>
+    </section>
+    <section class="drawer-section drawer-footer">
+      <button type="button" class="btn btn-ghost" id="close-drawer">Close drawer</button>
+    </section>
+  </div>
+  <script src="api.js"></script>
+  <script src="drawer.js"></script>
+</body>
+</html>

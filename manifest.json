@@ -1,0 +1,36 @@
+{
+  "name": "Applica Extension",
+  "description": "Applica Extension - left-hand drawer for login and app integration",
+  "version": "1.0",
+  "manifest_version": 3,
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:4000/*",
+    "https://*.fly.dev/*"
+  ],
+  "action": {
+    "default_icon": "images/applica_logo.png",
+    "default_title": "Toggle Applica drawer"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["drawer.html", "drawer.css", "drawer.js", "api.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
