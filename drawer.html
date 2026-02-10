@@ -18,13 +18,25 @@
     </section>
 
     <section class="drawer-section" id="score-queue-section" hidden>
-      <h2 class="drawer-heading">Score queue</h2>
-      <label for="applica-persona-picker" class="drawer-label">Persona</label>
+      <label for="applica-persona-picker" class="drawer-label">Profile</label>
       <select id="applica-persona-picker" class="drawer-select" aria-label="Select persona">
         <option value="">Loading…</option>
       </select>
-      <p class="drawer-hint">Job URLs you are tracking</p>
-      <div id="score-queue-list"></div>
+
+      <button type="button" class="btn btn-secondary" id="analyze-job-posting-btn">Analyze Job Posting</button>
+      <p id="analyze-status" class="drawer-hint" hidden></p>
+
+      <div id="score-queue-section-content">
+        <h2 class="drawer-heading">Score queue</h2>
+        <p class="drawer-hint">Postings we are analyzing</p>
+        <div id="score-queue-list"></div>
+      </div>
+
+      <div id="openings-section-content">
+        <h2 class="drawer-heading">Current Openings</h2>
+        <p class="drawer-hint">Jobs you are tracking</p>
+        <div id="openings-list"></div>
+      </div>
     </section>
 
     <section class="drawer-section" id="signed-in-section" hidden>
@@ -36,6 +48,7 @@
       <button type="button" class="btn btn-ghost" id="close-drawer">Close drawer</button>
     </section>
   </div>
+  <script src="config.js"></script>
   <script src="api.js"></script>
   <script src="drawer.js"></script>
 </body>

@@ -1,6 +1,6 @@
 /**
  * Applica Extension - API client for the app backend
- * Configure app origin in storage; defaults to localhost:4000 for development.
+ * App origin: use value from storage, or config.js default (see config.js).
  */
 
 const APPLICA_STORAGE_KEYS = {
@@ -9,19 +9,63 @@ const APPLICA_STORAGE_KEYS = {
   USER: 'applica_user',
 };
 
-const DEFAULT_APP_ORIGIN = 'http://localhost:4000';
+const DEFAULT_APP_ORIGIN =
+  (typeof window !== 'undefined' && window.APPLICA_DEFAULT_APP_ORIGIN) || 'https://app.applica.com';
+
+/** Catch "Extension context invalidated" when extension was reloaded while a page was open. */
+function safeStorageGet(keys, defaultVal) {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome?.storage?.local) {
+        resolve(defaultVal);
+        return;
+      }
+      chrome.storage.local.get(keys, (data) => {
+        try {
+          const val = keys.length === 1 ? (data?.[keys[0]] ?? defaultVal) : data;
+          resolve(val);
+        } catch (_) {
+          resolve(defaultVal);
+        }
+      });
+    } catch (_) {
+      resolve(defaultVal);
+    }
+  });
+}
+
+function safeStorageSet(items, cb) {
+  try {
+    if (!chrome?.storage?.local) {
+      if (cb) cb();
+      return;
+    }
+    chrome.storage.local.set(items, () => { try { if (cb) cb(); } catch (_) {} });
+  } catch (_) {
+    if (cb) cb();
+  }
+}
+
+function safeStorageRemove(keys, cb) {
+  try {
+    if (!chrome?.storage?.local) {
+      if (cb) cb();
+      return;
+    }
+    chrome.storage.local.remove(keys, () => { try { if (cb) cb(); } catch (_) {} });
+  } catch (_) {
+    if (cb) cb();
+  }
+}
 
 async function getAppOrigin() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([APPLICA_STORAGE_KEYS.APP_ORIGIN], (data) => {
-      resolve(data[APPLICA_STORAGE_KEYS.APP_ORIGIN] || DEFAULT_APP_ORIGIN);
-    });
-  });
+  const val = await safeStorageGet([APPLICA_STORAGE_KEYS.APP_ORIGIN], null);
+  return val || DEFAULT_APP_ORIGIN;
 }
 
 async function setAppOrigin(origin) {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [APPLICA_STORAGE_KEYS.APP_ORIGIN]: origin }, resolve);
+    safeStorageSet({ [APPLICA_STORAGE_KEYS.APP_ORIGIN]: origin }, resolve);
   });
 }
 
@@ -36,36 +80,28 @@ async function appUrl(path) {
 }
 
 async function getAuthToken() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([APPLICA_STORAGE_KEYS.AUTH_TOKEN], (data) => {
-      resolve(data[APPLICA_STORAGE_KEYS.AUTH_TOKEN] || null);
-    });
-  });
+  return safeStorageGet([APPLICA_STORAGE_KEYS.AUTH_TOKEN], null);
 }
 
 async function setAuthToken(token) {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [APPLICA_STORAGE_KEYS.AUTH_TOKEN]: token }, resolve);
+    safeStorageSet({ [APPLICA_STORAGE_KEYS.AUTH_TOKEN]: token }, resolve);
   });
 }
 
 async function getStoredUser() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([APPLICA_STORAGE_KEYS.USER], (data) => {
-      resolve(data[APPLICA_STORAGE_KEYS.USER] || null);
-    });
-  });
+  return safeStorageGet([APPLICA_STORAGE_KEYS.USER], null);
 }
 
 async function setStoredUser(user) {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [APPLICA_STORAGE_KEYS.USER]: user }, resolve);
+    safeStorageSet({ [APPLICA_STORAGE_KEYS.USER]: user }, resolve);
   });
 }
 
 async function clearAuthToken() {
   return new Promise((resolve) => {
-    chrome.storage.local.remove(
+    safeStorageRemove(
       [APPLICA_STORAGE_KEYS.AUTH_TOKEN, APPLICA_STORAGE_KEYS.USER],
       resolve
     );
@@ -97,6 +133,7 @@ async function login(email, password) {
 
 /**
  * Fetch from the app. Sends stored auth token in Authorization header when present.
+ * Throws with a descriptive message if the request fails (network, CORS, etc.).
  */
 async function appFetch(path, options = {}) {
   const url = await appUrl(path);
@@ -108,11 +145,17 @@ async function appFetch(path, options = {}) {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-  return response;
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+    return response;
+  } catch (err) {
+    const msg = err?.message || String(err);
+    const cause = err?.cause ? ` (${err.cause?.message || err.cause})` : '';
+    throw new Error(`Request to ${url} failed: ${msg}${cause}`);
+  }
 }
 
 // Export for use in drawer (and potentially other extension pages)

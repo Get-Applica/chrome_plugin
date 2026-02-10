@@ -7,8 +7,9 @@
 (function () {
   const DRAWER_WIDTH = 360;
   const EXTENSION_CALLBACK_PATH = '/user/log_in/extension_callback';
-  const STORAGE_KEYS = { AUTH_TOKEN: 'applica_auth_token', APP_ORIGIN: 'applica_app_origin' };
-  const DEFAULT_ORIGIN = 'http://localhost:4000';
+  const STORAGE_KEYS = { AUTH_TOKEN: 'applica_auth_token', APP_ORIGIN: 'applica_app_origin', REOPEN_DRAWER_TS: 'applica_reopen_drawer_ts' };
+  const REOPEN_DRAWER_TTL_MS = 3000;
+  const DEFAULT_ORIGIN = (typeof window !== 'undefined' && window.APPLICA_DEFAULT_APP_ORIGIN) || 'https://app.applica.com';
 
   // Detect app extension callback: same-origin page with token in URL (avoids blocked redirect to chrome-extension://)
   const params = new URLSearchParams(window.location.search);
@@ -125,6 +126,21 @@
     if (event.data?.type === 'applica-get-personas') {
       handleGetPersonas(event.source);
     }
+    if (event.data?.type === 'applica-analyze-current-page') {
+      try {
+        const url = window.location.href;
+        const html = document.documentElement.outerHTML;
+        event.source.postMessage({ type: 'applica-page-data', url, html }, '*');
+      } catch (e) {
+        console.debug('Applica: could not get page HTML', e);
+        event.source.postMessage({ type: 'applica-page-data', error: (e && e.message) || 'Failed to get page' }, '*');
+      }
+    }
+    if (event.data?.type === 'applica-navigate-to' && event.data.url) {
+      chrome.storage.local.set({ [STORAGE_KEYS.REOPEN_DRAWER_TS]: Date.now() }, () => {
+        window.location.href = event.data.url;
+      });
+    }
   });
 
   function isLoggedIn(cb) {
@@ -181,4 +197,13 @@
       }
     });
   }
+
+  // Re-open drawer on this page if we just navigated here from a drawer link
+  chrome.storage.local.get([STORAGE_KEYS.REOPEN_DRAWER_TS], (data) => {
+    const ts = data[STORAGE_KEYS.REOPEN_DRAWER_TS];
+    if (ts && Date.now() - ts < REOPEN_DRAWER_TTL_MS) {
+      chrome.storage.local.remove([STORAGE_KEYS.REOPEN_DRAWER_TS]);
+      openDrawer();
+    }
+  });
 })();

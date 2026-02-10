@@ -21,16 +21,16 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": ["https://*/*", "http://localhost:4000/*"],
+      "js": ["config.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["drawer.html", "drawer.css", "drawer.js", "api.js"],
-      "matches": ["<all_urls>"]
+      "resources": ["config.js", "drawer.html", "drawer.css", "drawer.js", "api.js"],
+      "matches": ["https://*/*"]
     }
   ]
 }

@@ -18,7 +18,8 @@ Chrome extension that shows a **right-hand drawer** when active. Use it to sign 
 
 ## Configuration
 
-- **App origin**: The extension uses `http://localhost:4000` by default. To change it (e.g. production), use the storage key `applica_app_origin` in `chrome.storage.local`, or extend the drawer UI to let users set the base URL.
+- **App origin**: Set in `config.js` as `APPLICA_DEFAULT_APP_ORIGIN`. The shipped extension should use your production API (e.g. `https://app.applica.com`). At runtime the extension uses `chrome.storage.local` key `applica_app_origin` if set; otherwise it uses the default from `config.js`.
+- **Local development**: Either set `APPLICA_DEFAULT_APP_ORIGIN` in `config.js` to `http://localhost:4000`, or leave the production default and set `applica_app_origin` in storage to `http://localhost:4000` (e.g. in DevTools → Application → Extension storage for your extension).
 
 ## Interacting with the app API
 
@@ -51,7 +52,8 @@ The existing `api.js` and `ApplicaAPI` helpers are set up for this: `getAppOrigi
 | `drawer.html` | UI inside the drawer: login iframe + “Open login in new tab” and “Close drawer”. |
 | `drawer.js` | Sets login iframe `src` from app origin, wires buttons. |
 | `drawer.css` | Styles for the drawer panel. |
-| `api.js` | App base URL (storage) and `appFetch()` for calling the app; ready for token auth. |
+| `config.js` | Default app origin (one place to change for production vs dev). |
+| `api.js` | App base URL (storage or config default) and `appFetch()` for calling the app; ready for token auth. |
 
 ## Host permissions
 

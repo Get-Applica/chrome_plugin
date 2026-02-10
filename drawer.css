@@ -43,6 +43,10 @@ body {
   line-height: 1.4;
 }
 
+.drawer-status-error {
+  color: #c53030;
+}
+
 .drawer-label {
   display: block;
   margin: 0 0 4px;
@@ -130,6 +134,47 @@ body {
 
 .btn-ghost:hover {
   background: rgba(255, 174, 119, 0.2);
+  color: #333333;
+}
+
+/* Score queue list - openings as distinct entries */
+#score-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer-opening-item {
+  border: 1px solid rgba(217, 217, 217, 0.8);
+  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.drawer-opening-item:hover {
+  border-color: rgba(175, 223, 223, 0.6);
+  background: rgba(175, 223, 223, 0.08);
+}
+
+.drawer-opening-item a {
+  display: block;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: #333333;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.drawer-opening-item a:hover {
+  color: #1a6b6b;
+}
+
+.drawer-opening-item:not(:has(a)) {
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  line-height: 1.35;
   color: #333333;
 }
 
