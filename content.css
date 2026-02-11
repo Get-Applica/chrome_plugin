@@ -20,6 +20,7 @@
   visibility: visible;
 }
 
+/* Isolate drawer from host page: reset font so rem/em and inheritance don't pick up site styles */
 .applica-drawer {
   position: fixed;
   top: 0;
@@ -36,6 +37,9 @@
   transform: translateX(100%);
   transition: transform 0.25s ease;
   font-family: "Kantumruy Pro", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #333333;
 }
 
 .applica-drawer-visible {
@@ -53,7 +57,7 @@
 }
 
 .applica-drawer-title {
-  font-size: 1.125rem;
+  font-size: 18px;
   font-weight: 600;
   color: #333333;
 }
@@ -63,9 +67,9 @@
   height: 32px;
   padding: 0;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: 8px;
   background: transparent;
-  font-size: 1.5rem;
+  font-size: 24px;
   line-height: 1;
   color: #333333;
   cursor: pointer;

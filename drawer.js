@@ -133,6 +133,12 @@
     return div.innerHTML;
   }
 
+  function normalizeUrlForCompare(url) {
+    if (!url || typeof url !== 'string') return '';
+    const u = url.trim().toLowerCase();
+    return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
+  }
+
   function openingItemHtml(o) {
     let text = (o.company || '') + ' - ' + (o.title || '');
     const score = o.current_match_score;
@@ -140,11 +146,16 @@
       text += ': ' + Number(score) + '%';
     }
     const label = escapeHtml(text);
+    const isCurrentPage =
+      currentPageUrl != null &&
+      o.url != null &&
+      normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl);
+    const itemClass = 'drawer-opening-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
     if (o.url) {
       const href = escapeHtml(o.url);
-      return `<div class="drawer-opening-item"><a href="${href}" class="drawer-opening-link">${label}</a></div>`;
+      return `<div class="${itemClass}"><a href="${href}" class="drawer-opening-link">${label}</a></div>`;
     }
-    return `<div class="drawer-opening-item">${label}</div>`;
+    return `<div class="${itemClass}">${label}</div>`;
   }
 
   function renderPersonas(payload) {
@@ -180,8 +191,11 @@
     }
   }
 
+  let currentPageUrl = null;
+
   window.addEventListener('message', (event) => {
     if (event.data?.type === 'applica-drawer-opened') {
+      currentPageUrl = event.data.currentPageUrl || null;
       refreshAuthState();
     }
     if (event.data?.type === 'applica-page-data') {

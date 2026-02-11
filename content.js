@@ -74,7 +74,10 @@
   function notifyDrawerOpened() {
     try {
       if (iframeEl?.contentWindow) {
-        iframeEl.contentWindow.postMessage({ type: 'applica-drawer-opened' }, '*');
+        iframeEl.contentWindow.postMessage(
+          { type: 'applica-drawer-opened', currentPageUrl: window.location.href },
+          '*'
+        );
       }
     } catch (e) {
       console.debug('Applica: could not notify drawer', e);

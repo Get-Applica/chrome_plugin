@@ -1,11 +1,15 @@
 # Applica Chrome Extension
 
-Chrome extension that shows a **right-hand drawer** when active. Use it to sign in to the Applica app and (later) interact with the app API from any tab.
+Chrome extension that shows a **right-hand drawer** when active. Use it to grade your resume against a job description that has been navigated to. 
+
+TODO - Fill out the form with the users/profile info
 
 ## Behavior
 
 - **Toggle drawer**: Click the extension icon in the toolbar. A drawer slides in from the right.
 - **Sign in**: The drawer shows the app’s login page in an iframe (or you can open “Open login in new tab”). Session cookies are set for the app’s origin, so when you open the app in a normal tab you’re logged in.
+- **Profile picker: A drop down to choose which profile you're actively working in.
+- **Analyze listing: The button grabs the current page which should be a job listing, sends it via API for testing against your default resume.
 - **Close**: Use the × in the drawer header or the “Close drawer” button.
 
 ## Setup
@@ -13,7 +17,7 @@ Chrome extension that shows a **right-hand drawer** when active. Use it to sign 
 1. Open Chrome and go to `chrome://extensions`.
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the `chrome_plugin` folder (this repo’s `chrome_plugin` directory).
-4. Ensure the app is running (e.g. `cd app && mix phx.server`) at `http://localhost:4000`.
+4. Ensure the app is running (e.g. `cd app && mix phx.server`) at `http://localhost:4000`. Or change config.js to point to a different location.
 5. Click the extension icon on any page to open the drawer.
 
 ## Configuration

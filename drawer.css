@@ -157,6 +157,11 @@ body {
   background: rgba(175, 223, 223, 0.08);
 }
 
+.drawer-opening-item-current {
+  border-color: rgba(175, 223, 223, 0.9);
+  background: rgba(175, 223, 223, 0.25);
+}
+
 .drawer-opening-item a {
   display: block;
   padding: 10px 12px;
