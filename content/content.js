@@ -89,7 +89,7 @@
     iframeEl = document.createElement('iframe');
     iframeEl.id = 'applica-drawer-frame';
     iframeEl.className = 'applica-drawer-frame';
-    iframeEl.src = chrome.runtime.getURL('drawer.html');
+    iframeEl.src = chrome.runtime.getURL('drawer/drawer.html');
     iframeEl.addEventListener('load', function onLoad() {
       if (isOpen) notifyDrawerOpened();
     });
