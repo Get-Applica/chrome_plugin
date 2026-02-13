@@ -9,8 +9,7 @@
     "storage"
   ],
   "host_permissions": [
-    "http://localhost:4000/*",
-    "https://*.fly.dev/*"
+    "https://app.getapplica.com/*"
   ],
   "action": {
     "default_icon": "images/applica_logo.png",
@@ -22,8 +21,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*/*",
-        "http://localhost:4000/*"
+        "https://*/*"
       ],
       "js": [
         "lib/config.js",
