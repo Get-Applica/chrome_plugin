@@ -118,20 +118,16 @@
     if (currentAnalyzingOpening && scored.some((s) => (s.id != null && s.id === currentAnalyzingOpening.id) || normalizeUrlForCompare(s.url) === normalizeUrlForCompare(currentAnalyzingOpening.url))) {
       currentAnalyzingOpening = null;
     }
-
-    const inProgressItem = currentAnalyzingOpening || null;
     const hasTitleAndCompany = (o) =>
       o.title != null && String(o.title).trim() !== '' &&
       o.company != null && String(o.company).trim() !== '';
-    const queuedItems = processing.filter(
-      (p) => {
-        return hasTitleAndCompany(p);
-      }
-    );
-    const queueRows = (inProgressItem ? [inProgressItem] : []).concat(queuedItems);
+    // In Progress row = only the placeholder (no title/company yet). Once it has title+company it belongs in Queued list only.
+    const placeholderOnly = currentAnalyzingOpening && !hasTitleAndCompany(currentAnalyzingOpening);
+    const queuedItems = processing.filter((p) => hasTitleAndCompany(p));
+    const queueRows = (placeholderOnly ? [currentAnalyzingOpening] : []).concat(queuedItems);
 
     if (queueRows.length > 0) {
-      queueEl.innerHTML = queueRows.map((o, i) => queueItemHtml(o, i === 0)).join('');
+      queueEl.innerHTML = queueRows.map((o, i) => queueItemHtml(o, placeholderOnly && i === 0)).join('');
       if (queueSection) queueSection.hidden = false;
     } else {
       queueEl.innerHTML = '';
