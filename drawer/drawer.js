@@ -125,11 +125,7 @@
       o.company != null && String(o.company).trim() !== '';
     const queuedItems = processing.filter(
       (p) => {
-        const notInProgress =
-          !inProgressItem ||
-          (p.id != null && inProgressItem.id != null && p.id !== inProgressItem.id) ||
-          normalizeUrlForCompare(p.url) !== normalizeUrlForCompare(inProgressItem.url);
-        return notInProgress && hasTitleAndCompany(p);
+        return hasTitleAndCompany(p);
       }
     );
     const queueRows = (inProgressItem ? [inProgressItem] : []).concat(queuedItems);
