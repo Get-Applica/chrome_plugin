@@ -43,6 +43,195 @@ body {
   line-height: 1.4;
 }
 
+#openings-section-content {
+  padding-top: 24px;
+}
+
+/* Worklist card - matches mockup (rounded-xl, white/95, border, shadow) */
+.drawer-worklist-card {
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(175, 223, 223, 0.3);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+.drawer-worklist-card-header {
+  padding: 1.5rem;
+}
+
+.drawer-worklist-header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-worklist-header-row .drawer-worklist-title {
+  flex: 1;
+}
+
+.drawer-worklist-icon-wrap {
+  width: 2rem;
+  height: 2rem;
+  background: rgba(255, 174, 119, 0.2);
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-worklist-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #FFAE77;
+}
+
+.drawer-worklist-title {
+  letter-spacing: -0.025em;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #333333;
+}
+
+.drawer-openings-badge-wrap {
+  flex-shrink: 0;
+}
+
+.drawer-worklist-card-body {
+  padding: 0 1.5rem 1.5rem;
+}
+
+.drawer-openings-hint {
+  margin-bottom: 8px;
+}
+
+.drawer-worklist-table-wrap {
+  position: relative;
+  width: 100%;
+  overflow: auto;
+}
+
+.drawer-worklist-table {
+  width: 100%;
+  font-size: 0.875rem;
+  border-collapse: collapse;
+  caption-side: bottom;
+}
+
+.drawer-worklist-table thead tr {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.drawer-worklist-th {
+  height: 2.5rem;
+  padding: 0 0.5rem;
+  text-align: left;
+  vertical-align: middle;
+  font-weight: 500;
+  color: rgba(51, 51, 51, 0.7);
+}
+
+.drawer-worklist-th-match {
+  text-align: right;
+}
+
+.drawer-worklist-table tbody tr {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+
+.drawer-worklist-table tbody tr:hover {
+  background: rgba(248, 250, 252, 0.6);
+}
+
+.drawer-worklist-table tbody tr.drawer-opening-item-current {
+  background: rgba(175, 223, 223, 0.25);
+}
+
+.drawer-worklist-table tbody tr.drawer-opening-item-current:hover {
+  background: rgba(175, 223, 223, 0.35);
+}
+
+.drawer-worklist-td {
+  padding: 0.5rem;
+  vertical-align: middle;
+}
+
+.drawer-worklist-td-company {
+  font-weight: 500;
+}
+
+.drawer-worklist-td-match {
+  text-align: right;
+}
+
+.drawer-worklist-match-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.drawer-worklist-match-badge--green {
+  background: rgba(112, 196, 148, 0.2);
+  color: #70C494;
+}
+
+.drawer-worklist-match-badge--yellow {
+  background: rgba(242, 215, 92, 0.25);
+  color: #b89b1f;
+}
+
+.drawer-worklist-match-badge--orange {
+  background: rgba(242, 154, 75, 0.25);
+  color: #c47a3d;
+}
+
+.drawer-worklist-match-badge--red {
+  background: rgba(217, 74, 58, 0.2);
+  color: #D94A3A;
+}
+
+.drawer-worklist-match-badge--muted {
+  background: rgba(51, 51, 51, 0.1);
+  color: #333333;
+}
+
+.drawer-worklist-empty {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.8125rem;
+  color: rgba(51, 51, 51, 0.7);
+  text-align: center;
+}
+
+.drawer-usage-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  margin-bottom: 4px;
+}
+
+.drawer-usage-badge--unlimited {
+  background: transparent;
+  color: rgba(51, 51, 51, 0.5);
+}
+
+.drawer-usage-badge--remaining {
+  background: rgba(112, 196, 148, 0.2);
+  color: #2d7a54;
+}
+
+.drawer-usage-badge--limit {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
 .drawer-status-error {
   color: #c53030;
 }
@@ -114,6 +303,29 @@ body {
   font-family: "Kantumruy Pro", sans-serif;
 }
 
+/* Primary - brand-green from app tailwind (app .btn-green) */
+.btn-primary {
+  background: #70C494;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #5fb383;
+}
+
+.btn-primary:disabled,
+.btn-primary[disabled] {
+  background: #D9D9D9;
+  color: rgba(51, 51, 51, 0.6);
+  cursor: not-allowed;
+}
+
+.btn:disabled,
+.btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
 /* Secondary - border brand-teal, hover bg brand-teal/10 (app .btn-outline) */
 .btn-secondary {
   background: rgba(255, 255, 255, 0.95);
@@ -137,11 +349,162 @@ body {
   color: #333333;
 }
 
-/* Score queue list - openings as distinct entries */
-#score-queue-list {
+/* Processing queue card - matches mockup (blue accent) */
+#score-queue-section-content {
+  padding-top: 24px;
+}
+
+.drawer-queue-card {
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(175, 223, 223, 0.3);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+.drawer-queue-card-header {
+  padding: 1.5rem;
+}
+
+.drawer-queue-header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-queue-icon-wrap {
+  width: 2rem;
+  height: 2rem;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawer-queue-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #3b82f6;
+}
+
+.drawer-queue-title {
+  letter-spacing: -0.025em;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #333333;
+}
+
+.drawer-queue-card-body {
+  padding: 0 1.5rem 1.5rem;
+}
+
+.drawer-queue-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+}
+
+.drawer-queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  gap: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.drawer-queue-item--in-progress {
+  background: rgba(239, 246, 255, 0.9);
+  border: 1px solid rgba(147, 197, 253, 0.8);
+}
+
+.drawer-queue-item--queued {
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.drawer-queue-item:hover {
+  filter: brightness(0.98);
+}
+
+.drawer-queue-item-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.drawer-queue-item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.drawer-queue-item--in-progress .drawer-queue-item-dot {
+  background: #3b82f6;
+  animation: drawer-queue-pulse 1.5s ease-in-out infinite;
+}
+
+.drawer-queue-item--queued .drawer-queue-item-dot {
+  background: #94a3b8;
+}
+
+@keyframes drawer-queue-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.drawer-queue-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.drawer-queue-item-title {
+  margin: 0 0 2px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #333333;
+}
+
+.drawer-queue-item-url {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(51, 51, 51, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-queue-item-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.drawer-queue-item--in-progress .drawer-queue-item-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #1d4ed8;
+}
+
+.drawer-queue-item--queued .drawer-queue-item-badge {
+  background: rgba(226, 232, 240, 0.9);
+  color: #475569;
+}
+
+.drawer-queue-empty {
+  padding: 0.75rem 0;
+  font-size: 0.8125rem;
+  color: rgba(51, 51, 51, 0.7);
 }
 
 .drawer-opening-item {
@@ -187,6 +550,35 @@ body {
   margin-top: auto;
   padding-top: 16px;
   border-top: 1px solid rgba(175, 223, 223, 0.3);
+}
+
+.drawer-footer-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-footer-signed-in {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.drawer-footer-signed-in[hidden] {
+  display: none;
+}
+
+.drawer-footer-row .drawer-footer-email {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #close-drawer {

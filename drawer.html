@@ -18,34 +18,67 @@
     </section>
 
     <section class="drawer-section" id="score-queue-section" hidden>
-      <label for="applica-persona-picker" class="drawer-label">Profile</label>
       <select id="applica-persona-picker" class="drawer-select" aria-label="Select persona">
         <option value="">Loading…</option>
       </select>
 
-      <button type="button" class="btn btn-secondary" id="analyze-job-posting-btn">Analyze Job Posting</button>
+      <button type="button" class="btn btn-primary" id="analyze-job-posting-btn">Analyze Job Posting</button>
       <p id="analyze-status" class="drawer-hint" hidden></p>
 
       <div id="score-queue-section-content">
-        <h2 class="drawer-heading">Score queue</h2>
-        <p class="drawer-hint">Postings we are analyzing</p>
-        <div id="score-queue-list"></div>
+        <div class="drawer-queue-card">
+          <div class="drawer-queue-card-header">
+            <div class="drawer-queue-header-row">
+              <div class="drawer-queue-icon-wrap">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-queue-icon" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </div>
+              <span class="drawer-queue-title">Processing Queue</span>
+            </div>
+          </div>
+          <div class="drawer-queue-card-body">
+            <div id="score-queue-list" class="drawer-queue-list"></div>
+          </div>
+        </div>
       </div>
 
       <div id="openings-section-content">
-        <h2 class="drawer-heading">Current Openings</h2>
-        <p class="drawer-hint">Jobs you are tracking</p>
-        <div id="openings-list"></div>
+        <div class="drawer-worklist-card">
+          <div class="drawer-worklist-card-header">
+            <div class="drawer-worklist-header-row">
+              <div class="drawer-worklist-icon-wrap">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-worklist-icon" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+              </div>
+              <span class="drawer-worklist-title">Your Worklist</span>
+              <div id="openings-section-badge" class="drawer-openings-badge-wrap"></div>
+            </div>
+          </div>
+          <div class="drawer-worklist-card-body">
+            <div id="openings-section-hint" class="drawer-openings-hint"></div>
+            <div class="drawer-worklist-table-wrap">
+              <table class="drawer-worklist-table">
+                <thead>
+                  <tr>
+                    <th class="drawer-worklist-th drawer-worklist-th-company">Company</th>
+                    <th class="drawer-worklist-th drawer-worklist-th-position">Position</th>
+                    <th class="drawer-worklist-th drawer-worklist-th-match">Match</th>
+                  </tr>
+                </thead>
+                <tbody id="openings-list"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="drawer-section" id="signed-in-section" hidden>
-      <h2 class="drawer-heading">Signed in</h2>
-      <p class="drawer-hint" id="signed-in-email"></p>
-      <button type="button" class="btn btn-ghost" id="sign-out-btn">Sign out</button>
-    </section>
     <section class="drawer-section drawer-footer">
-      <button type="button" class="btn btn-ghost" id="close-drawer">Close drawer</button>
+      <div class="drawer-footer-row">
+        <button type="button" class="btn btn-ghost" id="close-drawer">Close drawer</button>
+        <section class="drawer-footer-signed-in" id="signed-in-section" hidden>
+          <p class="drawer-hint drawer-footer-email" id="signed-in-email"></p>
+          <button type="button" class="btn btn-ghost" id="sign-out-btn">Sign out</button>
+        </section>
+      </div>
     </section>
   </div>
   <script src="config.js"></script>

@@ -87,6 +87,8 @@
   function renderOpenings(payload) {
     const queueEl = document.getElementById('score-queue-list');
     const listEl = document.getElementById('openings-list');
+    const hintEl = document.getElementById('openings-section-hint');
+    const badgeEl = document.getElementById('openings-section-badge');
     if (!queueEl || !listEl) return;
     const queueSection = document.getElementById('score-queue-section-content');
     const openingsSection = document.getElementById('openings-section-content');
@@ -99,31 +101,73 @@
       return;
     }
     if (payload.error) {
-      const msg = `<p class="drawer-hint">${escapeHtml(payload.error)}</p>`;
-      listEl.innerHTML = msg;
+      const msg = escapeHtml(payload.error);
+      listEl.innerHTML =
+        '<tr><td colspan="3" class="drawer-worklist-empty">' + msg + '</td></tr>';
       if (openingsSection) openingsSection.hidden = false;
       return;
     }
     const openings = payload.data?.openings || [];
     const hasMessage = payload.data?.message;
+    const limits = payload.data?.limits;
+    lastOpeningsPayload = payload;
 
     const processing = openings.filter((o) => o.current_match_score == null || o.current_match_score === undefined || Number(o.current_match_score) === 0);
     const scored = openings.filter((o) => Number(o.current_match_score) > 0);
 
-    if (processing.length > 0) {
-      queueEl.innerHTML = processing.map(openingItemHtml).join('');
+    if (currentAnalyzingOpening && scored.some((s) => (s.id != null && s.id === currentAnalyzingOpening.id) || normalizeUrlForCompare(s.url) === normalizeUrlForCompare(currentAnalyzingOpening.url))) {
+      currentAnalyzingOpening = null;
+    }
+
+    const inProgressItem = currentAnalyzingOpening || null;
+    const hasTitleAndCompany = (o) =>
+      o.title != null && String(o.title).trim() !== '' &&
+      o.company != null && String(o.company).trim() !== '';
+    const queuedItems = processing.filter(
+      (p) => {
+        const notInProgress =
+          !inProgressItem ||
+          (p.id != null && inProgressItem.id != null && p.id !== inProgressItem.id) ||
+          normalizeUrlForCompare(p.url) !== normalizeUrlForCompare(inProgressItem.url);
+        return notInProgress && hasTitleAndCompany(p);
+      }
+    );
+    const queueRows = (inProgressItem ? [inProgressItem] : []).concat(queuedItems);
+
+    if (queueRows.length > 0) {
+      queueEl.innerHTML = queueRows.map((o, i) => queueItemHtml(o, i === 0)).join('');
       if (queueSection) queueSection.hidden = false;
     } else {
-      queueEl.innerHTML = '<p class="drawer-hint">No postings being analyzed.</p>';
+      queueEl.innerHTML = '';
       if (queueSection) queueSection.hidden = true;
     }
 
+    if (badgeEl) badgeEl.innerHTML = usageBadgeHtml(limits);
+    if (hintEl) {
+      const upgradeHint =
+        limits != null &&
+        typeof limits.remaining === 'number' &&
+        limits.remaining === 0
+          ? '<p class="drawer-hint">You have reached your limit of openings. Upgrade to create more.</p>'
+          : '';
+      hintEl.innerHTML = upgradeHint;
+    }
+
+    const analyzeBtn = document.getElementById('analyze-job-posting-btn');
+    if (analyzeBtn) {
+      const pageAlreadyInList =
+        currentPageUrl != null &&
+        openings.some((o) => o.url != null && normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl));
+      analyzeBtn.disabled = !!pageAlreadyInList;
+    }
+
     if (scored.length > 0) {
-      listEl.innerHTML = scored.map(openingItemHtml).join('');
+      listEl.innerHTML = scored.map(openingRowHtml).join('');
       if (openingsSection) openingsSection.hidden = false;
     } else {
-      listEl.innerHTML = '<p class="drawer-hint">No openings yet.</p>';
-      if (openingsSection) openingsSection.hidden = true;
+      listEl.innerHTML =
+        '<tr><td colspan="3" class="drawer-worklist-empty">No openings yet.</td></tr>';
+      if (openingsSection) openingsSection.hidden = false;
     }
   }
 
@@ -133,29 +177,90 @@
     return div.innerHTML;
   }
 
+  function usageBadgeHtml(limits) {
+    if (limits == null || limits === '') return '';
+    if (limits === 'unlimited' || limits.unlimited === true) {
+      return '<span class="drawer-usage-badge drawer-usage-badge--unlimited">unlimited</span>';
+    }
+    const remaining = limits.remaining;
+    const count = limits.count;
+    const period = limits.period != null ? String(limits.period) : '';
+    if (typeof remaining !== 'number' || typeof count !== 'number') return '';
+    const label = remaining + '/' + count + ' ' + period;
+    const modifier =
+      remaining > 0 ? 'drawer-usage-badge--remaining' : 'drawer-usage-badge--limit';
+    return (
+      '<span class="drawer-usage-badge ' + modifier + '">' + escapeHtml(label) + '</span>'
+    );
+  }
+
   function normalizeUrlForCompare(url) {
     if (!url || typeof url !== 'string') return '';
-    const u = url.trim().toLowerCase();
+    let u = url.trim().toLowerCase();
+    try {
+      const parsed = new URL(u);
+      u = parsed.origin + parsed.pathname;
+    } catch (_) {}
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
   }
 
-  function openingItemHtml(o) {
-    let text = (o.company || '') + ' - ' + (o.title || '');
+  function queueItemHtml(o, isInProgress) {
+    const inProgress = !!isInProgress;
+    const title = (o.company || '') + ' - ' + (o.title || '');
+    const titleEscaped = escapeHtml(title || 'Job posting');
+    const urlDisplay = o.url ? escapeHtml(o.url) : '';
+    const badgeText = inProgress ? 'In Progress' : 'Queued';
+    const modifier = inProgress ? 'drawer-queue-item--in-progress' : 'drawer-queue-item--queued';
+    const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
+    const urlRow = urlDisplay
+      ? '<p class="drawer-queue-item-url">' + urlDisplay + '</p>'
+      : '';
+    return (
+      '<div class="drawer-queue-item ' +
+      modifier +
+      '"' +
+      dataUrl +
+      '><div class="drawer-queue-item-main"><div class="drawer-queue-item-dot"></div><div class="drawer-queue-item-text"><p class="drawer-queue-item-title">' +
+      titleEscaped +
+      '</p>' +
+      urlRow +
+      '</div></div><span class="drawer-queue-item-badge">' +
+      escapeHtml(badgeText) +
+      '</span></div>'
+    );
+  }
+
+  function openingRowHtml(o) {
+    const company = escapeHtml(o.company || '');
+    const position = escapeHtml(o.title || '');
     const score = o.current_match_score;
-    if (score != null && score !== '' && score != 0) {
-      text += ': ' + Number(score) + '%';
-    }
-    const label = escapeHtml(text);
+    const scoreNum =
+      score != null && score !== '' && score != 0 ? Number(score) : null;
+    const tier = (o.score_tier && escapeHtml(String(o.score_tier))) || 'muted';
+    const scoreHtml =
+      scoreNum != null
+        ? '<span class="drawer-worklist-match-badge drawer-worklist-match-badge--' + tier + '">' + scoreNum + '%</span>'
+        : '—';
     const isCurrentPage =
       currentPageUrl != null &&
       o.url != null &&
       normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl);
-    const itemClass = 'drawer-opening-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
-    if (o.url) {
-      const href = escapeHtml(o.url);
-      return `<div class="${itemClass}"><a href="${href}" class="drawer-opening-link">${label}</a></div>`;
-    }
-    return `<div class="${itemClass}">${label}</div>`;
+    const rowClass =
+      'drawer-worklist-row' + (isCurrentPage ? ' drawer-opening-item-current' : '');
+    const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
+    return (
+      '<tr class="' +
+      rowClass +
+      '"' +
+      dataUrl +
+      '><td class="drawer-worklist-td drawer-worklist-td-company">' +
+      company +
+      '</td><td class="drawer-worklist-td drawer-worklist-td-position">' +
+      position +
+      '</td><td class="drawer-worklist-td drawer-worklist-td-match">' +
+      scoreHtml +
+      '</td></tr>'
+    );
   }
 
   function renderPersonas(payload) {
@@ -192,10 +297,13 @@
   }
 
   let currentPageUrl = null;
+  let currentAnalyzingOpening = null;
+  let lastOpeningsPayload = null;
 
   window.addEventListener('message', (event) => {
     if (event.data?.type === 'applica-drawer-opened') {
       currentPageUrl = event.data.currentPageUrl || null;
+      if (lastOpeningsPayload) renderOpenings(lastOpeningsPayload);
       refreshAuthState();
     }
     if (event.data?.type === 'applica-page-data') {
@@ -253,7 +361,8 @@
   }
 
   async function submitOpeningFromPage(url, html, personaId, btn) {
-    setAnalyzeStatus('info', 'Getting data from the page…');
+    currentAnalyzingOpening = { url, title: 'Analyzing job posting…', company: '' };
+    renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
     try {
       const res = await window.ApplicaAPI.appFetch('/api/openings', {
         method: 'POST',
@@ -262,14 +371,19 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        currentAnalyzingOpening = null;
+        renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
         setAnalyzeStatus('error', data.message || 'Failed to add opening');
         return;
       }
+      if (data.opening) currentAnalyzingOpening = data.opening;
       setAnalyzeStatus('info', data.message || 'Opening added.');
       fetchOpenings(personaId);
       startOpeningsPoll(personaId, 60000);
       setTimeout(() => setAnalyzeStatus('', ''), 3000);
     } catch (err) {
+      currentAnalyzingOpening = null;
+      renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
       setAnalyzeStatus('error', err?.message || 'Request failed');
     }
   }
@@ -284,17 +398,45 @@
     });
   }
 
-  // Navigate host tab to job URL when a listing link is clicked (not the iframe)
+  // Navigate host tab to job URL when a listing link or worklist row is clicked (not the iframe)
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
       const link = e.target.closest('a.drawer-opening-link');
-      if (!link || !link.href) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: 'applica-navigate-to', url: link.href }, '*');
-      } else {
-        window.location.href = link.href;
+      if (link && link.href) {
+        e.preventDefault();
+        e.stopPropagation();
+        const url = link.href;
+        if (window.parent !== window) {
+          window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
+        } else {
+          window.location.href = url;
+        }
+        return;
+      }
+      const row = e.target.closest('tr[data-url]');
+      if (row) {
+        const url = row.getAttribute('data-url');
+        if (url) {
+          e.preventDefault();
+          if (window.parent !== window) {
+            window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
+          } else {
+            window.location.href = url;
+          }
+          return;
+        }
+      }
+      const queueItem = e.target.closest('.drawer-queue-item[data-url]');
+      if (queueItem) {
+        const url = queueItem.getAttribute('data-url');
+        if (url) {
+          e.preventDefault();
+          if (window.parent !== window) {
+            window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
+          } else {
+            window.location.href = url;
+          }
+        }
       }
     });
   }

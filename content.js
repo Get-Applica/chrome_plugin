@@ -5,27 +5,57 @@
  */
 
 (function () {
-  const DRAWER_WIDTH = 360;
+  const DRAWER_WIDTH = 500;
   const EXTENSION_CALLBACK_PATH = '/user/log_in/extension_callback';
   const STORAGE_KEYS = { AUTH_TOKEN: 'applica_auth_token', APP_ORIGIN: 'applica_app_origin', REOPEN_DRAWER_TS: 'applica_reopen_drawer_ts' };
   const REOPEN_DRAWER_TTL_MS = 3000;
   const DEFAULT_ORIGIN = (typeof window !== 'undefined' && window.APPLICA_DEFAULT_APP_ORIGIN) || 'https://app.applica.com';
 
-  // Detect app extension callback: same-origin page with token in URL (avoids blocked redirect to chrome-extension://)
+  // Detect app extension callback: same-origin page with one-time code in URL; exchange for token via API.
   const params = new URLSearchParams(window.location.search);
-  if (window.location.pathname === EXTENSION_CALLBACK_PATH && params.get('token')) {
-    const token = params.get('token');
-    let user = null;
+  if (window.location.pathname === EXTENSION_CALLBACK_PATH && params.get('code')) {
+    const code = params.get('code');
+    const origin = window.location.origin;
+    (async function () {
+      try {
+        const res = await fetch(origin + '/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ code: code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showCallbackError(data.message || 'Could not complete sign-in.');
+          return;
+        }
+        const token = data.token;
+        const user = data.user ?? null;
+        if (!token) {
+          showCallbackError('Invalid response from server.');
+          return;
+        }
+        await new Promise((resolve) => {
+          chrome.storage.local.set(
+            { applica_auth_token: token, applica_user: user || undefined },
+            resolve
+          );
+        });
+        chrome.runtime.sendMessage({ type: 'APPLICA_STORE_TOKEN_DONE', closeTab: true });
+      } catch (err) {
+        showCallbackError((err && err.message) || 'Request failed.');
+      }
+    })();
+  }
+
+  function showCallbackError(message) {
     try {
-      const userParam = params.get('user');
-      if (userParam) user = JSON.parse(decodeURIComponent(userParam));
+      const el = document.body || document.documentElement;
+      const msg = document.createElement('p');
+      msg.style.color = '#b91c1c';
+      msg.style.marginTop = '1rem';
+      msg.textContent = message;
+      el.appendChild(msg);
     } catch (_) {}
-    chrome.storage.local.set({
-      applica_auth_token: token,
-      applica_user: user || undefined
-    }, () => {
-      chrome.runtime.sendMessage({ type: 'APPLICA_STORE_TOKEN_DONE', closeTab: true });
-    });
   }
   const ANIMATION_MS = 250;
 
@@ -46,10 +76,12 @@
     drawerEl.id = 'applica-drawer';
     drawerEl.className = 'applica-drawer';
 
+    const logoUrl = chrome.runtime.getURL('images/applica_logo.png');
     const header = document.createElement('div');
     header.className = 'applica-drawer-header';
     header.innerHTML = `
-      <span class="applica-drawer-title">Applica</span>
+      <img src="${logoUrl}" alt="Applica" class="applica-drawer-logo" />
+      <p class="applica-drawer-header-desc">Get scores faster by navigating to a job description page on any job board, then click "Analyze Job Posting" to add it to your worklist.</p>
       <button type="button" class="applica-drawer-close" aria-label="Close drawer">&times;</button>
     `;
     header.querySelector('.applica-drawer-close').addEventListener('click', closeDrawer);
