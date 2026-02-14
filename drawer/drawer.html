@@ -18,9 +18,30 @@
     </section>
 
     <section class="drawer-section" id="score-queue-section" hidden>
-      <select id="applica-persona-picker" class="drawer-select" aria-label="Select persona">
-        <option value="">Loading…</option>
-      </select>
+      <div class="drawer-profile-card">
+        <div class="drawer-profile-card-inner">
+          <div class="drawer-profile-row">
+            <span class="drawer-profile-label">Profile</span>
+            <div class="drawer-profile-picker-wrap">
+              <select id="applica-persona-picker" class="drawer-profile-select" aria-label="Select profile">
+                <option value="">Loading…</option>
+              </select>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-profile-chevron" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            </div>
+            <div class="drawer-profile-score-wrap">
+              <span class="drawer-profile-score-label">Score</span>
+              <span id="applica-profile-score" class="drawer-profile-score-value">—</span>
+            </div>
+          </div>
+          <div class="drawer-profile-resume">
+            Current Resume: <span id="applica-profile-resume" class="drawer-profile-resume-name">—</span>
+          </div>
+          <div class="drawer-profile-manage">
+            <span>Manage your profile and resume from Applica</span>
+            <a id="applica-profile-manage-link" class="drawer-profile-manage-link" href="#" target="_blank" rel="noopener">Open in Applica <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-profile-external-icon" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>
+          </div>
+        </div>
+      </div>
 
       <button type="button" class="btn btn-primary" id="analyze-job-posting-btn">Analyze Job Posting</button>
       <p id="analyze-status" class="drawer-hint" hidden></p>
@@ -54,18 +75,7 @@
           </div>
           <div class="drawer-worklist-card-body">
             <div id="openings-section-hint" class="drawer-openings-hint"></div>
-            <div class="drawer-worklist-table-wrap">
-              <table class="drawer-worklist-table">
-                <thead>
-                  <tr>
-                    <th class="drawer-worklist-th drawer-worklist-th-company">Company</th>
-                    <th class="drawer-worklist-th drawer-worklist-th-position">Position</th>
-                    <th class="drawer-worklist-th drawer-worklist-th-match">Match</th>
-                  </tr>
-                </thead>
-                <tbody id="openings-list"></tbody>
-              </table>
-            </div>
+            <div id="openings-list" class="drawer-worklist-list"></div>
           </div>
         </div>
       </div>

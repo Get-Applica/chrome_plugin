@@ -102,8 +102,7 @@
     }
     if (payload.error) {
       const msg = escapeHtml(payload.error);
-      listEl.innerHTML =
-        '<tr><td colspan="3" class="drawer-worklist-empty">' + msg + '</td></tr>';
+      listEl.innerHTML = '<div class="drawer-worklist-empty">' + msg + '</div>';
       if (openingsSection) openingsSection.hidden = false;
       return;
     }
@@ -157,8 +156,7 @@
       listEl.innerHTML = scored.map(openingRowHtml).join('');
       if (openingsSection) openingsSection.hidden = false;
     } else {
-      listEl.innerHTML =
-        '<tr><td colspan="3" class="drawer-worklist-empty">No openings yet.</td></tr>';
+      listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
       if (openingsSection) openingsSection.hidden = false;
     }
   }
@@ -238,21 +236,52 @@
       o.url != null &&
       normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl);
     const rowClass =
-      'drawer-worklist-row' + (isCurrentPage ? ' drawer-opening-item-current' : '');
+      'drawer-worklist-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
+    const resumeLine =
+      o.cv_filename != null && String(o.cv_filename).trim() !== ''
+        ? '<div class="drawer-worklist-item-resume">Resume analyzed: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
+        : '';
     return (
-      '<tr class="' +
+      '<div class="' +
       rowClass +
       '"' +
       dataUrl +
-      '><td class="drawer-worklist-td drawer-worklist-td-company">' +
+      '><div class="drawer-worklist-item-top"><div class="drawer-worklist-item-left"><div class="drawer-worklist-item-company">' +
       company +
-      '</td><td class="drawer-worklist-td drawer-worklist-td-position">' +
+      '</div><div class="drawer-worklist-item-position">' +
       position +
-      '</td><td class="drawer-worklist-td drawer-worklist-td-match">' +
+      '</div></div><div class="drawer-worklist-item-score-wrap">' +
       scoreHtml +
-      '</td></tr>'
+      '</div></div>' +
+      (resumeLine ? resumeLine : '') +
+      '</div>'
     );
+  }
+
+  let lastPersonas = [];
+
+  async function updateProfileCard(persona) {
+    const scoreEl = document.getElementById('applica-profile-score');
+    const resumeEl = document.getElementById('applica-profile-resume');
+    const linkEl = document.getElementById('applica-profile-manage-link');
+    if (scoreEl) {
+      if (persona && (persona.match_score != null || persona.match_score === 0)) {
+        scoreEl.textContent = String(Math.round(Number(persona.match_score)));
+        scoreEl.className = 'drawer-profile-score-value drawer-profile-score-value--' + ((persona.score_tier && persona.score_tier) || 'muted');
+      } else {
+        scoreEl.textContent = '—';
+        scoreEl.className = 'drawer-profile-score-value drawer-profile-score-value--muted';
+      }
+    }
+    if (resumeEl) {
+      resumeEl.textContent = (persona && persona.cv_filename) ? persona.cv_filename : '—';
+    }
+    if (linkEl && window.ApplicaAPI && typeof window.ApplicaAPI.appUrl === 'function') {
+      try {
+        linkEl.href = await window.ApplicaAPI.appUrl('/dashboard');
+      } catch (_) {}
+    }
   }
 
   function renderPersonas(payload) {
@@ -261,17 +290,21 @@
     if (payload.error) {
       picker.innerHTML = `<option value="">${escapeHtml(payload.error)}</option>`;
       picker.disabled = true;
+      updateProfileCard(null);
       return;
     }
     const personas = payload.data?.personas || [];
+    lastPersonas = personas;
     picker.disabled = false;
     picker.innerHTML = personas.length
       ? personas.map((p) => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.title || p.name || 'Persona')}</option>`).join('')
       : '<option value="">No personas</option>';
     if (personas.length > 0) {
       picker.value = String(personas[0].id);
+      updateProfileCard(personas[0]);
       fetchOpenings(personas[0].id);
     } else {
+      updateProfileCard(null);
       const listEl = document.getElementById('openings-list');
       if (listEl) listEl.innerHTML = '';
     }
@@ -386,6 +419,8 @@
       stopOpeningsPoll();
       lastOpeningsSnapshot = null;
       const id = personaPicker.value;
+      const persona = id ? lastPersonas.find((p) => String(p.id) === id) : null;
+      updateProfileCard(persona || null);
       if (id) fetchOpenings(id);
     });
   }
@@ -405,7 +440,7 @@
         }
         return;
       }
-      const row = e.target.closest('tr[data-url]');
+      const row = e.target.closest('.drawer-worklist-item[data-url]');
       if (row) {
         const url = row.getAttribute('data-url');
         if (url) {
