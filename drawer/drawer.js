@@ -111,12 +111,17 @@
     const limits = payload.data?.limits;
     lastOpeningsPayload = payload;
 
-    const processing = openings.filter((o) => o.current_match_score == null || o.current_match_score === undefined || Number(o.current_match_score) === 0);
+    const processing = openings.filter((o) => !Number(o.current_match_score));
     const scored = openings.filter((o) => Number(o.current_match_score) > 0);
 
-    if (currentAnalyzingOpening && scored.some((s) => (s.id != null && s.id === currentAnalyzingOpening.id) || normalizeUrlForCompare(s.url) === normalizeUrlForCompare(currentAnalyzingOpening.url))) {
-      currentAnalyzingOpening = null;
-    }
+    const currentIsNowScored =
+      currentAnalyzingOpening &&
+      scored.some(
+        (s) =>
+          (s.id != null && s.id === currentAnalyzingOpening.id) ||
+          normalizeUrlForCompare(s.url) === normalizeUrlForCompare(currentAnalyzingOpening.url)
+      );
+    if (currentIsNowScored) currentAnalyzingOpening = null;
     const hasTitleAndCompany = (o) =>
       o.title != null && String(o.title).trim() !== '' &&
       o.company != null && String(o.company).trim() !== '';
@@ -135,13 +140,10 @@
 
     if (badgeEl) badgeEl.innerHTML = usageBadgeHtml(limits);
     if (hintEl) {
-      const upgradeHint =
-        limits != null &&
-        typeof limits.remaining === 'number' &&
-        limits.remaining === 0
-          ? '<p class="drawer-hint">You have reached your limit of openings. Upgrade to create more.</p>'
-          : '';
-      hintEl.innerHTML = upgradeHint;
+      const atLimit = limits != null && typeof limits.remaining === 'number' && limits.remaining === 0;
+      hintEl.innerHTML = atLimit
+        ? '<p class="drawer-hint">You have reached your limit of openings. Upgrade to create more.</p>'
+        : '';
     }
 
     const analyzeBtn = document.getElementById('analyze-job-posting-btn');
@@ -153,7 +155,16 @@
     }
 
     if (scored.length > 0) {
-      listEl.innerHTML = scored.map(openingRowHtml).join('');
+      const sortedScored = [...scored].sort((a, b) => {
+        const aCurrent = currentPageUrl != null && a.url != null && normalizeUrlForCompare(a.url) === normalizeUrlForCompare(currentPageUrl);
+        const bCurrent = currentPageUrl != null && b.url != null && normalizeUrlForCompare(b.url) === normalizeUrlForCompare(currentPageUrl);
+        if (aCurrent && !bCurrent) return -1;
+        if (!aCurrent && bCurrent) return 1;
+        const scoreA = Number(a.current_match_score) || 0;
+        const scoreB = Number(b.current_match_score) || 0;
+        return scoreB - scoreA;
+      });
+      listEl.innerHTML = sortedScored.map(openingRowHtml).join('');
       if (openingsSection) openingsSection.hidden = false;
     } else {
       listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
@@ -266,16 +277,12 @@
     const resumeEl = document.getElementById('applica-profile-resume');
     const linkEl = document.getElementById('applica-profile-manage-link');
     if (scoreEl) {
-      if (persona && (persona.match_score != null || persona.match_score === 0)) {
-        scoreEl.textContent = String(Math.round(Number(persona.match_score)));
-        scoreEl.className = 'drawer-profile-score-value drawer-profile-score-value--' + ((persona.score_tier && persona.score_tier) || 'muted');
-      } else {
-        scoreEl.textContent = '—';
-        scoreEl.className = 'drawer-profile-score-value drawer-profile-score-value--muted';
-      }
+      const hasScore = persona && (persona.match_score != null || persona.match_score === 0);
+      scoreEl.textContent = hasScore ? String(Math.round(Number(persona.match_score))) : '—';
+      scoreEl.className = 'drawer-profile-score-value drawer-profile-score-value--' + (persona?.score_tier || 'muted');
     }
     if (resumeEl) {
-      resumeEl.textContent = (persona && persona.cv_filename) ? persona.cv_filename : '—';
+      resumeEl.textContent = persona?.cv_filename ?? '—';
     }
     if (linkEl && window.ApplicaAPI && typeof window.ApplicaAPI.appUrl === 'function') {
       try {
@@ -402,7 +409,6 @@
         return;
       }
       if (data.opening) currentAnalyzingOpening = data.opening;
-      setAnalyzeStatus('info', data.message || 'Opening added.');
       fetchOpenings(personaId);
       startOpeningsPoll(personaId, 60000);
       setTimeout(() => setAnalyzeStatus('', ''), 3000);
@@ -425,45 +431,34 @@
     });
   }
 
-  // Navigate host tab to job URL when a listing link or worklist row is clicked (not the iframe)
+  function navigateToUrl(url) {
+    if (!url) return;
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
+    } else {
+      window.location.href = url;
+    }
+  }
+
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
       const link = e.target.closest('a.drawer-opening-link');
-      if (link && link.href) {
+      if (link?.href) {
         e.preventDefault();
         e.stopPropagation();
-        const url = link.href;
-        if (window.parent !== window) {
-          window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
-        } else {
-          window.location.href = url;
-        }
+        navigateToUrl(link.href);
         return;
       }
       const row = e.target.closest('.drawer-worklist-item[data-url]');
       if (row) {
-        const url = row.getAttribute('data-url');
-        if (url) {
-          e.preventDefault();
-          if (window.parent !== window) {
-            window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
-          } else {
-            window.location.href = url;
-          }
-          return;
-        }
+        e.preventDefault();
+        navigateToUrl(row.getAttribute('data-url'));
+        return;
       }
       const queueItem = e.target.closest('.drawer-queue-item[data-url]');
       if (queueItem) {
-        const url = queueItem.getAttribute('data-url');
-        if (url) {
-          e.preventDefault();
-          if (window.parent !== window) {
-            window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
-          } else {
-            window.location.href = url;
-          }
-        }
+        e.preventDefault();
+        navigateToUrl(queueItem.getAttribute('data-url'));
       }
     });
   }
@@ -489,6 +484,10 @@
     });
   }
 
+  function isContextInvalidated(e) {
+    return String(e?.message ?? e).includes('Extension context invalidated');
+  }
+
   openLoginTabBtn.addEventListener('click', async () => {
     try {
       if (typeof chrome === 'undefined' || !chrome?.runtime?.getURL) {
@@ -501,7 +500,7 @@
       const loginUrl = `${base}/user/log_in?redirect_extension=1&redirect_uri=${redirectUri}`;
       chrome.tabs.create({ url: loginUrl });
     } catch (e) {
-      if (String(e?.message || e).includes('Extension context invalidated')) {
+      if (isContextInvalidated(e)) {
         alert('Extension was reloaded. Please close the drawer and open it again.');
       } else {
         throw e;
@@ -514,7 +513,7 @@
       await window.ApplicaAPI.clearAuthToken();
       refreshAuthState();
     } catch (e) {
-      if (String(e?.message || e).includes('Extension context invalidated')) {
+      if (isContextInvalidated(e)) {
         alert('Extension was reloaded. Please close the drawer and open it again.');
       } else {
         throw e;
@@ -528,12 +527,18 @@
     }
   });
 
+  const authStorageChanged = (changes, areaName) => {
+    if (areaName !== 'local') return;
+    const keys = window.ApplicaAPI?.STORAGE_KEYS;
+    if (keys && (changes[keys.AUTH_TOKEN] || changes[keys.USER])) {
+      refreshAuthState();
+    }
+  };
+
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       try {
-        if (areaName === 'local' && (changes[window.ApplicaAPI?.STORAGE_KEYS?.AUTH_TOKEN] || changes[window.ApplicaAPI?.STORAGE_KEYS?.USER])) {
-          refreshAuthState();
-        }
+        authStorageChanged(changes, areaName);
       } catch (_) {
         // Extension context invalidated (e.g. extension reloaded)
       }

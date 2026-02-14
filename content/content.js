@@ -42,7 +42,7 @@
         });
         chrome.runtime.sendMessage({ type: 'APPLICA_STORE_TOKEN_DONE', closeTab: true });
       } catch (err) {
-        showCallbackError((err && err.message) || 'Request failed.');
+        showCallbackError(err?.message || 'Request failed.');
       }
     })();
   }
@@ -168,7 +168,7 @@
         event.source.postMessage({ type: 'applica-page-data', url, html }, '*');
       } catch (e) {
         console.debug('Applica: could not get page HTML', e);
-        event.source.postMessage({ type: 'applica-page-data', error: (e && e.message) || 'Failed to get page' }, '*');
+        event.source.postMessage({ type: 'applica-page-data', error: e?.message || 'Failed to get page' }, '*');
       }
     }
     if (event.data?.type === 'applica-navigate-to' && event.data.url) {
