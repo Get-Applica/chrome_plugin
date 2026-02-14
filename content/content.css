@@ -61,6 +61,7 @@
   width: auto;
   object-fit: contain;
   flex-shrink: 0;
+  border-radius: 0.75rem;
 }
 
 .applica-drawer-header-desc {
