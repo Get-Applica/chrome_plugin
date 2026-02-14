@@ -205,6 +205,9 @@
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
   }
 
+  const trashIconSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-queue-item-trash-icon" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>';
+
   function queueItemHtml(o, isInProgress) {
     const inProgress = !!isInProgress;
     const title = (o.company || '') + ' - ' + (o.title || '');
@@ -249,10 +252,15 @@
     const rowClass =
       'drawer-worklist-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
+    const dataOpeningId = o.id != null ? ' data-opening-id="' + escapeHtml(String(o.id)) + '"' : '';
     const resumeLine =
       o.cv_filename != null && String(o.cv_filename).trim() !== ''
-        ? '<div class="drawer-worklist-item-resume">Resume analyzed: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
+        ? '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
         : '';
+    const deleteBtn =
+      '<button type="button" class="drawer-worklist-item-delete" aria-label="Remove from worklist"' +
+      dataOpeningId +
+      '>' + trashIconSvg + '</button>';
     return (
       '<div class="' +
       rowClass +
@@ -264,6 +272,7 @@
       position +
       '</div></div><div class="drawer-worklist-item-score-wrap">' +
       scoreHtml +
+      deleteBtn +
       '</div></div>' +
       (resumeLine ? resumeLine : '') +
       '</div>'
@@ -440,8 +449,34 @@
     }
   }
 
+  async function handleDeleteQueueItem(openingId) {
+    const personaId = personaPicker?.value;
+    if (!personaId) return;
+    try {
+      const res = await window.ApplicaAPI.appFetch(`/api/openings/${openingId}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchOpenings(personaId);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setAnalyzeStatus('error', data.message || 'Could not remove.');
+      }
+    } catch (err) {
+      setAnalyzeStatus('error', err?.message || 'Could not remove.');
+    }
+  }
+
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
+      const worklistDeleteBtn = e.target.closest('button.drawer-worklist-item-delete');
+      if (worklistDeleteBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const openingId = worklistDeleteBtn.getAttribute('data-opening-id');
+        if (openingId) {
+          handleDeleteQueueItem(openingId);
+        }
+        return;
+      }
       const link = e.target.closest('a.drawer-opening-link');
       if (link?.href) {
         e.preventDefault();
