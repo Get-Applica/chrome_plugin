@@ -210,7 +210,7 @@
 
   function queueItemHtml(o, isInProgress) {
     const inProgress = !!isInProgress;
-    const title = (o.company || '') + ' - ' + (o.title || '');
+    const title = [o.company, o.title].filter(Boolean).join(' - ') || '';
     const titleEscaped = escapeHtml(title || 'Job posting');
     const urlDisplay = o.url ? escapeHtml(o.url) : '';
     const badgeText = inProgress ? 'In Progress' : 'Queued';
