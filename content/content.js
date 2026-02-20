@@ -66,9 +66,11 @@
 
   function getExtensionURL(path) {
     try {
-      return (typeof chrome !== 'undefined' && chrome?.runtime?.getURL)
-        ? chrome.runtime.getURL(path)
-        : '';
+      var rt = typeof chrome !== 'undefined' ? chrome.runtime : undefined;
+      if (rt && typeof rt.getURL === 'function') {
+        return rt.getURL(path);
+      }
+      return '';
     } catch (_) {
       return '';
     }

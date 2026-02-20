@@ -170,6 +170,16 @@
       listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
       if (openingsSection) openingsSection.hidden = false;
     }
+    tryShowDetailViewForCurrentPage();
+  }
+
+  function tryShowDetailViewForCurrentPage() {
+    if (!currentPageUrl) return;
+    const openings = lastOpeningsPayload?.data?.openings;
+    if (!Array.isArray(openings)) return;
+    const normalized = normalizeUrlForCompare(currentPageUrl);
+    const opening = openings.find((o) => o && o.url && normalizeUrlForCompare(o.url) === normalized);
+    if (opening) showOpeningDetail(opening);
   }
 
   function escapeHtml(s) {
@@ -208,7 +218,7 @@
   const trashIconSvg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-queue-item-trash-icon" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>';
 
-    function queueItemHtml(o, isInProgress) {
+  function queueItemHtml(o, isInProgress) {
     const inProgress = !!isInProgress;
     const title = [o.company, o.title].filter(Boolean).join(' - ') || '';
     const titleEscaped = escapeHtml(title || 'Job posting');
@@ -258,23 +268,20 @@
       hasResume
         ? '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
         : '';
-    const applyPart =
-      o.id != null
-        ? '<button type="button" class="drawer-worklist-item-fill-form" aria-label="Apply" title="Fill form with your saved details" data-opening-id="' + escapeHtml(String(o.id)) + '">Apply</button>'
-        : '';
     const deleteBtn =
       '<button type="button" class="drawer-worklist-item-delete" aria-label="Remove from worklist"' +
       dataOpeningId +
       '>' + trashIconSvg + '</button>';
-    const hasBottom = hasResume || applyPart;
+    const hasBottom = !!hasResume;
     const bottomRow = hasBottom
-      ? '<div class="drawer-worklist-item-bottom">' + resumePart + applyPart + '</div>'
+      ? '<div class="drawer-worklist-item-bottom">' + resumePart + '</div>'
       : '';
     return (
       '<div class="' +
       rowClass +
       '"' +
       dataUrl +
+      dataOpeningId +
       '><div class="drawer-worklist-item-top"><div class="drawer-worklist-item-left"><div class="drawer-worklist-item-company">' +
       company +
       '</div><div class="drawer-worklist-item-position">' +
@@ -483,19 +490,49 @@
     }
   }
 
+  let selectedOpening = null;
+
+  function setListOnlyVisibility(visible) {
+    const block = document.getElementById('drawer-list-only-block');
+    if (block) {
+      block.hidden = !visible;
+      block.style.display = visible ? '' : 'none';
+    }
+  }
+
+  function showOpeningDetail(opening) {
+    selectedOpening = opening;
+    const listView = document.getElementById('openings-list-view');
+    const detailView = document.getElementById('opening-detail-view');
+    if (!listView || !detailView) return;
+    document.getElementById('opening-detail-company').textContent = opening.company || '—';
+    document.getElementById('opening-detail-position').textContent = opening.title || '—';
+    const resumeEl = document.getElementById('opening-detail-resume');
+    resumeEl.textContent = opening.cv_filename ? 'Resume: ' + opening.cv_filename : '';
+    resumeEl.hidden = !opening.cv_filename;
+    const scoreEl = document.getElementById('opening-detail-score');
+    const score = opening.current_match_score;
+    scoreEl.textContent = score != null && score !== '' ? 'Match: ' + score + '%' : '';
+    scoreEl.hidden = score == null || score === '';
+    const openLink = document.getElementById('opening-detail-open-url');
+    openLink.href = opening.url || '#';
+    openLink.hidden = !opening.url;
+    setListOnlyVisibility(false);
+    listView.hidden = true;
+    detailView.hidden = false;
+  }
+
+  function showOpeningsList() {
+    selectedOpening = null;
+    const listView = document.getElementById('openings-list-view');
+    const detailView = document.getElementById('opening-detail-view');
+    if (listView) listView.hidden = false;
+    if (detailView) detailView.hidden = true;
+    setListOnlyVisibility(true);
+  }
+
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
-      const fillFormBtnEl = e.target.closest('button.drawer-worklist-item-fill-form');
-      if (fillFormBtnEl) {
-        e.preventDefault();
-        e.stopPropagation();
-        const openingId = fillFormBtnEl.getAttribute('data-opening-id');
-        if (openingId && window.parent !== window) {
-          setAnalyzeStatus('', 'Filling form…');
-          window.parent.postMessage({ type: 'applica-fill-form', opening_id: openingId }, '*');
-        }
-        return;
-      }
       const worklistDeleteBtn = e.target.closest('button.drawer-worklist-item-delete');
       if (worklistDeleteBtn) {
         e.preventDefault();
@@ -506,6 +543,40 @@
         }
         return;
       }
+      const row = e.target.closest('.drawer-worklist-item[data-url]');
+      if (row) {
+        e.preventDefault();
+        e.stopPropagation();
+        const openingId = row.getAttribute('data-opening-id');
+        const url = row.getAttribute('data-url');
+        let opening = null;
+        if (openingId) {
+          const openings = lastOpeningsPayload?.data?.openings;
+          opening = Array.isArray(openings)
+            ? openings.find((o) => o != null && String(o.id) === openingId)
+            : null;
+          if (!opening) {
+            const companyEl = row.querySelector('.drawer-worklist-item-company');
+            const positionEl = row.querySelector('.drawer-worklist-item-position');
+            const resumeEl = row.querySelector('.drawer-worklist-item-resume-name');
+            const scoreBadge = row.querySelector('.drawer-worklist-match-badge');
+            opening = {
+              id: openingId,
+              url: url || undefined,
+              company: companyEl?.textContent?.trim() || '',
+              title: positionEl?.textContent?.trim() || '',
+              cv_filename: resumeEl?.textContent?.trim() || undefined,
+              current_match_score: scoreBadge?.textContent?.trim()?.replace(/%$/, '') || undefined
+            };
+          }
+        }
+        if (opening) {
+          showOpeningDetail(opening);
+        } else {
+          navigateToUrl(url);
+        }
+        return;
+      }
       const link = e.target.closest('a.drawer-opening-link');
       if (link?.href) {
         e.preventDefault();
@@ -513,17 +584,42 @@
         navigateToUrl(link.href);
         return;
       }
-      const row = e.target.closest('.drawer-worklist-item[data-url]');
-      if (row) {
-        e.preventDefault();
-        navigateToUrl(row.getAttribute('data-url'));
-        return;
-      }
       const queueItem = e.target.closest('.drawer-queue-item[data-url]');
       if (queueItem) {
         e.preventDefault();
         navigateToUrl(queueItem.getAttribute('data-url'));
       }
+    });
+  }
+
+  const openingDetailBack = document.getElementById('opening-detail-back');
+  if (openingDetailBack) {
+    openingDetailBack.addEventListener('click', () => showOpeningsList());
+  }
+
+  const openingDetailFillForm = document.getElementById('opening-detail-fill-form');
+  if (openingDetailFillForm) {
+    openingDetailFillForm.addEventListener('click', () => {
+      if (!selectedOpening?.id || window.parent === window) return;
+      setAnalyzeStatus('', 'Filling form…');
+      window.parent.postMessage({ type: 'applica-fill-form', opening_id: String(selectedOpening.id) }, '*');
+    });
+  }
+
+  const openingDetailOpenUrl = document.getElementById('opening-detail-open-url');
+  if (openingDetailOpenUrl) {
+    openingDetailOpenUrl.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (selectedOpening?.url) navigateToUrl(selectedOpening.url);
+    });
+  }
+
+  const openingDetailRemove = document.getElementById('opening-detail-remove');
+  if (openingDetailRemove) {
+    openingDetailRemove.addEventListener('click', async () => {
+      if (!selectedOpening?.id) return;
+      await handleDeleteQueueItem(selectedOpening.id);
+      showOpeningsList();
     });
   }
 
