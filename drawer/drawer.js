@@ -208,7 +208,7 @@
   const trashIconSvg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-queue-item-trash-icon" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>';
 
-  function queueItemHtml(o, isInProgress) {
+    function queueItemHtml(o, isInProgress) {
     const inProgress = !!isInProgress;
     const title = [o.company, o.title].filter(Boolean).join(' - ') || '';
     const titleEscaped = escapeHtml(title || 'Job posting');
@@ -253,14 +253,23 @@
       'drawer-worklist-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
     const dataOpeningId = o.id != null ? ' data-opening-id="' + escapeHtml(String(o.id)) + '"' : '';
-    const resumeLine =
-      o.cv_filename != null && String(o.cv_filename).trim() !== ''
+    const hasResume = o.cv_filename != null && String(o.cv_filename).trim() !== '';
+    const resumePart =
+      hasResume
         ? '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
+        : '';
+    const applyPart =
+      o.id != null
+        ? '<button type="button" class="drawer-worklist-item-fill-form" aria-label="Apply" title="Fill form with your saved details" data-opening-id="' + escapeHtml(String(o.id)) + '">Apply</button>'
         : '';
     const deleteBtn =
       '<button type="button" class="drawer-worklist-item-delete" aria-label="Remove from worklist"' +
       dataOpeningId +
       '>' + trashIconSvg + '</button>';
+    const hasBottom = hasResume || applyPart;
+    const bottomRow = hasBottom
+      ? '<div class="drawer-worklist-item-bottom">' + resumePart + applyPart + '</div>'
+      : '';
     return (
       '<div class="' +
       rowClass +
@@ -274,7 +283,7 @@
       scoreHtml +
       deleteBtn +
       '</div></div>' +
-      (resumeLine ? resumeLine : '') +
+      bottomRow +
       '</div>'
     );
   }
@@ -349,6 +358,15 @@
     }
     if (event.data?.type === 'applica-page-data') {
       handlePageDataForAnalyze(event.data);
+    }
+    if (event.data?.type === 'applica-fill-form-result') {
+      const r = event.data;
+      if (r.error) {
+        setAnalyzeStatus('error', r.error);
+      } else if (r.filled != null && r.total != null) {
+        setAnalyzeStatus('', r.filled > 0 ? `Filled ${r.filled} of ${r.total} fields.` : 'No matching form fields found.');
+        setTimeout(() => setAnalyzeStatus('', ''), 3000);
+      }
     }
   });
 
@@ -467,6 +485,17 @@
 
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
+      const fillFormBtnEl = e.target.closest('button.drawer-worklist-item-fill-form');
+      if (fillFormBtnEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        const openingId = fillFormBtnEl.getAttribute('data-opening-id');
+        if (openingId && window.parent !== window) {
+          setAnalyzeStatus('', 'Filling form…');
+          window.parent.postMessage({ type: 'applica-fill-form', opening_id: openingId }, '*');
+        }
+        return;
+      }
       const worklistDeleteBtn = e.target.closest('button.drawer-worklist-item-delete');
       if (worklistDeleteBtn) {
         e.preventDefault();
