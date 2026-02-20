@@ -61,6 +61,18 @@ The existing `lib/api.js` and `ApplicaAPI` helpers are set up for this: `getAppO
 | `auth.html` | OAuth/callback helper page; loads `lib/api.js`. |
 | `images/` | Extension icon and drawer logo. |
 
+## Contributing
+
+We welcome contributions. To get started:
+
+1. **Fork and clone** the repo, then load the `chrome_plugin` folder as an unpacked extension (see [Setup](#setup)).
+2. **Open an issue** to discuss bigger changes or report bugs before sending a PR.
+3. **Submit a PR** with a clear description of the change. Keep the scope small where possible so reviews are straightforward.
+
+There’s no formal style guide; match the existing code and keep the extension’s permissions and behavior as minimal as possible.
+
+> **Disclosure:** If it's not obvious, I am not a front end dev and most of this was vibe coded. If you need API support for anything new, please send an email to bart@getapplica.com and link back to an issue here so I can get the context. Thanks!
+
 ## Host permissions
 
 - `http://localhost:4000/*` — local app.
