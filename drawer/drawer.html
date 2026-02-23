@@ -18,33 +18,35 @@
     </section>
 
     <section class="drawer-section" id="score-queue-section" hidden>
-      <div class="drawer-profile-card">
-        <div class="drawer-profile-card-inner">
-          <div class="drawer-profile-row">
-            <span class="drawer-profile-label">Profile</span>
-            <div class="drawer-profile-picker-wrap">
-              <select id="applica-persona-picker" class="drawer-profile-select" aria-label="Select profile">
-                <option value="">Loading…</option>
-              </select>
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-profile-chevron" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+      <div id="drawer-list-only-block">
+        <div id="drawer-profile-card" class="drawer-profile-card">
+          <div class="drawer-profile-card-inner">
+            <div class="drawer-profile-row">
+              <span class="drawer-profile-label">Profile</span>
+              <div class="drawer-profile-picker-wrap">
+                <select id="applica-persona-picker" class="drawer-profile-select" aria-label="Select profile">
+                  <option value="">Loading…</option>
+                </select>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-profile-chevron" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+              </div>
+              <div class="drawer-profile-score-wrap">
+                <span class="drawer-profile-score-label">Score</span>
+                <span id="applica-profile-score" class="drawer-profile-score-value">—</span>
+              </div>
             </div>
-            <div class="drawer-profile-score-wrap">
-              <span class="drawer-profile-score-label">Score</span>
-              <span id="applica-profile-score" class="drawer-profile-score-value">—</span>
+            <div class="drawer-profile-resume">
+              Current Resume: <span id="applica-profile-resume" class="drawer-profile-resume-name">—</span>
             </div>
-          </div>
-          <div class="drawer-profile-resume">
-            Current Resume: <span id="applica-profile-resume" class="drawer-profile-resume-name">—</span>
-          </div>
-          <div class="drawer-profile-manage">
-            <span>Manage your profile and resume from Applica</span>
-            <a id="applica-profile-manage-link" class="drawer-profile-manage-link" href="#" target="_blank" rel="noopener">Open in Applica <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-profile-external-icon" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>
+            <div class="drawer-profile-manage">
+              <span>Manage your profile and resume from Applica</span>
+              <a id="applica-profile-manage-link" class="drawer-profile-manage-link" href="#" target="_blank" rel="noopener">Open in Applica <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-profile-external-icon" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>
+            </div>
           </div>
         </div>
-      </div>
 
-      <button type="button" class="btn btn-primary" id="analyze-job-posting-btn">Analyze Job Posting</button>
-      <p id="analyze-status" class="drawer-hint" hidden></p>
+        <button type="button" class="btn btn-primary" id="analyze-job-posting-btn">Analyze Job Posting</button>
+        <p id="analyze-status" class="drawer-hint" hidden></p>
+      </div>
 
       <div id="score-queue-section-content">
         <div class="drawer-queue-card">
@@ -63,7 +65,7 @@
       </div>
 
       <div id="openings-section-content">
-        <div class="drawer-worklist-card">
+        <div id="openings-list-view" class="drawer-worklist-card">
           <div class="drawer-worklist-card-header">
             <div class="drawer-worklist-header-row">
               <div class="drawer-worklist-icon-wrap">
@@ -72,10 +74,68 @@
               <span class="drawer-worklist-title">Your Worklist</span>
               <div id="openings-section-badge" class="drawer-openings-badge-wrap"></div>
             </div>
+            <p class="drawer-worklist-subtitle">Click a card to view details and fill out the application form.</p>
           </div>
           <div class="drawer-worklist-card-body">
             <div id="openings-section-hint" class="drawer-openings-hint"></div>
             <div id="openings-list" class="drawer-worklist-list"></div>
+          </div>
+        </div>
+        <div id="opening-detail-view" class="drawer-opening-detail" hidden>
+          <button type="button" class="drawer-opening-detail-back" id="opening-detail-back" aria-label="Back to worklist">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+            Back
+          </button>
+          <div class="drawer-opening-detail-content">
+            <h3 id="opening-detail-company" class="drawer-opening-detail-company"></h3>
+            <p id="opening-detail-position" class="drawer-opening-detail-position"></p>
+            <p id="opening-detail-resume" class="drawer-opening-detail-resume"></p>
+            <div id="opening-detail-score-wrap" class="drawer-opening-detail-score-wrap" hidden>
+              <div class="drawer-score-block">
+                <div class="drawer-score-main">
+                  <div id="opening-detail-score-value" class="drawer-score-value"></div>
+                  <div class="drawer-score-bar-track">
+                    <div id="opening-detail-score-bar" class="drawer-score-bar-fill"></div>
+                  </div>
+                </div>
+                <div class="drawer-score-categories">
+                  <h4 class="drawer-score-categories-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-score-categories-icon" aria-hidden="true"><line x1="12" x2="12" y1="20" y2="10"></line><line x1="18" x2="18" y1="20" y2="4"></line><line x1="6" x2="6" y1="20" y2="16"></line></svg>
+              Category Scores
+            </h4>
+                  <div class="drawer-score-categories-grid">
+                    <div id="opening-detail-score-skill" class="drawer-score-category" hidden>
+                      <div class="drawer-score-category-head">
+                        <span class="drawer-score-category-label">Skill Match Score</span>
+                        <span id="opening-detail-score-skill-value" class="drawer-score-category-value drawer-score-category-value--teal"></span>
+                      </div>
+                      <div class="drawer-score-category-track"><div id="opening-detail-score-skill-bar" class="drawer-score-category-fill drawer-score-category-fill--teal"></div></div>
+                    </div>
+                    <div id="opening-detail-score-experience" class="drawer-score-category" hidden>
+                      <div class="drawer-score-category-head">
+                        <span class="drawer-score-category-label">Experience Match</span>
+                        <span id="opening-detail-score-experience-value" class="drawer-score-category-value drawer-score-category-value--orange"></span>
+                      </div>
+                      <div class="drawer-score-category-track"><div id="opening-detail-score-experience-bar" class="drawer-score-category-fill drawer-score-category-fill--orange"></div></div>
+                    </div>
+                    <div id="opening-detail-score-education" class="drawer-score-category" hidden>
+                      <div class="drawer-score-category-head">
+                        <span class="drawer-score-category-label">Education Match</span>
+                        <span id="opening-detail-score-education-value" class="drawer-score-category-value drawer-score-category-value--green"></span>
+                      </div>
+                      <div class="drawer-score-category-track"><div id="opening-detail-score-education-bar" class="drawer-score-category-fill drawer-score-category-fill--green"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="drawer-opening-detail-actions">
+              <a href="#" id="opening-detail-open-url" class="btn btn-secondary drawer-opening-detail-open-link">Open job posting</a>
+              <button type="button" class="btn btn-primary" id="opening-detail-fill-form">Fill out form</button>
+
+              <button type="button" class="btn btn-ghost drawer-opening-detail-remove" id="opening-detail-remove">Applied, remove from worklist</button>
+            </div>
+            
           </div>
         </div>
       </div>

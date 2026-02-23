@@ -170,6 +170,36 @@
       listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
       if (openingsSection) openingsSection.hidden = false;
     }
+    applyDrawerViewState();
+  }
+
+  function tryShowDetailViewForCurrentPage() {
+    if (!currentPageUrl) return;
+    const openings = lastOpeningsPayload?.data?.openings;
+    if (!Array.isArray(openings)) return;
+    const normalized = normalizeUrlForCompare(currentPageUrl);
+    const opening = openings.find((o) => o && o.url && normalizeUrlForCompare(o.url) === normalized);
+    if (opening) showOpeningDetail(opening);
+  }
+
+  async function applyDrawerViewState() {
+    const state = await loadDrawerViewState();
+    const openings = lastOpeningsPayload?.data?.openings || [];
+    if (state?.view === 'list') {
+      showOpeningsList();
+      return;
+    }
+    if (state?.view === 'detail' && state.openingId != null) {
+      const opening = openings.find((o) => o != null && String(o.id) === String(state.openingId));
+      if (opening) {
+        showOpeningDetail(opening);
+        return;
+      }
+      showOpeningsList();
+      saveDrawerViewState('list', null);
+      return;
+    }
+    tryShowDetailViewForCurrentPage();
   }
 
   function escapeHtml(s) {
@@ -203,6 +233,48 @@
       u = parsed.origin + parsed.pathname;
     } catch (_) {}
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
+  }
+
+  /** Map API score_tier to app brand color hex */
+  const SCORE_TIER_COLORS = {
+    green: '#70C494',
+    yellow: '#F2D75C',
+    orange: '#F29A4B',
+    red: '#D94A3A',
+    muted: '#333333'
+  };
+  function scoreTierToColor(tier) {
+    return SCORE_TIER_COLORS[String(tier).toLowerCase()] ?? SCORE_TIER_COLORS.muted;
+  }
+
+  /** Normalize score like app: 0–10 scale becomes 0–100 for display */
+  function normalizeScore(score) {
+    const n = Number(score);
+    if (n !== n) return 0;
+    if (n > 10) return Math.round(n);
+    return Math.round(n * 10);
+  }
+
+  function getScoreFromAnalysis(analysis, key) {
+    if (!analysis || typeof analysis !== 'object') return null;
+    const raw = analysis[key] ?? analysis.analysis?.[key];
+    if (raw == null) return null;
+    const n = normalizeScore(raw);
+    return n > 0 ? n : null;
+  }
+
+  function setCategoryScore(name, score) {
+    const wrap = document.getElementById('opening-detail-score-' + name);
+    const valueEl = document.getElementById('opening-detail-score-' + name + '-value');
+    const barEl = document.getElementById('opening-detail-score-' + name + '-bar');
+    if (!wrap) return;
+    if (score != null && score > 0) {
+      wrap.hidden = false;
+      if (valueEl) valueEl.textContent = score;
+      if (barEl) barEl.style.width = Math.min(100, Math.max(0, score)) + '%';
+    } else {
+      wrap.hidden = true;
+    }
   }
 
   const trashIconSvg =
@@ -253,19 +325,27 @@
       'drawer-worklist-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
     const dataOpeningId = o.id != null ? ' data-opening-id="' + escapeHtml(String(o.id)) + '"' : '';
-    const resumeLine =
-      o.cv_filename != null && String(o.cv_filename).trim() !== ''
-        ? '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
-        : '';
+    const hasResume = o.cv_filename != null && String(o.cv_filename).trim() !== '';
+    const resumeName = hasResume ? escapeHtml(String(o.cv_filename)) : '';
+    const resumePart = hasResume
+      ? (o.cv_url
+          ? '<div class="drawer-worklist-item-resume">Resume: <a class="drawer-worklist-item-resume-name" href="' + escapeHtml(o.cv_url) + '" target="_blank" rel="noopener">' + resumeName + '</a></div>'
+          : '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + resumeName + '</span></div>')
+      : '';
     const deleteBtn =
       '<button type="button" class="drawer-worklist-item-delete" aria-label="Remove from worklist"' +
       dataOpeningId +
       '>' + trashIconSvg + '</button>';
+    const hasBottom = !!hasResume;
+    const bottomRow = hasBottom
+      ? '<div class="drawer-worklist-item-bottom">' + resumePart + '</div>'
+      : '';
     return (
       '<div class="' +
       rowClass +
       '"' +
       dataUrl +
+      dataOpeningId +
       '><div class="drawer-worklist-item-top"><div class="drawer-worklist-item-left"><div class="drawer-worklist-item-company">' +
       company +
       '</div><div class="drawer-worklist-item-position">' +
@@ -274,7 +354,7 @@
       scoreHtml +
       deleteBtn +
       '</div></div>' +
-      (resumeLine ? resumeLine : '') +
+      bottomRow +
       '</div>'
     );
   }
@@ -337,6 +417,43 @@
     }
   }
 
+  const DRAWER_VIEW_STATE_KEY = 'applica_drawer_view_state';
+
+  function saveDrawerViewState(view, openingId) {
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+        chrome.storage.local.set({
+          [DRAWER_VIEW_STATE_KEY]: { view, openingId: openingId ?? null }
+        }, () => {});
+      }
+    } catch (_) {}
+  }
+
+  function loadDrawerViewState() {
+    return new Promise((resolve) => {
+      try {
+        if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
+          resolve(null);
+          return;
+        }
+        chrome.storage.local.get([DRAWER_VIEW_STATE_KEY], (data) => {
+          try {
+            const raw = data?.[DRAWER_VIEW_STATE_KEY];
+            if (raw && (raw.view === 'list' || raw.view === 'detail')) {
+              resolve({ view: raw.view, openingId: raw.openingId ?? null });
+            } else {
+              resolve(null);
+            }
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
   let currentPageUrl = null;
   let currentAnalyzingOpening = null;
   let lastOpeningsPayload = null;
@@ -349,6 +466,15 @@
     }
     if (event.data?.type === 'applica-page-data') {
       handlePageDataForAnalyze(event.data);
+    }
+    if (event.data?.type === 'applica-fill-form-result') {
+      const r = event.data;
+      if (r.error) {
+        setAnalyzeStatus('error', r.error);
+      } else if (r.filled != null && r.total != null) {
+        setAnalyzeStatus('', r.filled > 0 ? `Filled ${r.filled} of ${r.total} fields.` : 'No matching form fields found.');
+        setTimeout(() => setAnalyzeStatus('', ''), 3000);
+      }
     }
   });
 
@@ -465,6 +591,86 @@
     }
   }
 
+  let selectedOpening = null;
+
+  function setListOnlyVisibility(visible) {
+    const block = document.getElementById('drawer-list-only-block');
+    if (block) {
+      block.hidden = !visible;
+      block.style.display = visible ? '' : 'none';
+    }
+  }
+
+  function showOpeningDetail(opening) {
+    selectedOpening = opening;
+    saveDrawerViewState('detail', opening.id ?? null);
+    const listView = document.getElementById('openings-list-view');
+    const detailView = document.getElementById('opening-detail-view');
+    if (!listView || !detailView) return;
+    document.getElementById('opening-detail-company').textContent = opening.company || '—';
+    document.getElementById('opening-detail-position').textContent = opening.title || '—';
+    const resumeEl = document.getElementById('opening-detail-resume');
+    if (opening.cv_filename) {
+      if (opening.cv_url) {
+        resumeEl.innerHTML =
+          'Resume: <a href="' + escapeHtml(opening.cv_url) + '" class="drawer-opening-detail-resume-link" download target="_blank" rel="noopener">' + escapeHtml(opening.cv_filename) + '</a>';
+      } else {
+        resumeEl.textContent = 'Resume: ' + opening.cv_filename;
+      }
+      resumeEl.hidden = false;
+    } else {
+      resumeEl.textContent = '';
+      resumeEl.hidden = true;
+    }
+    let mainScore = null;
+    if (opening.current_match_score != null && opening.current_match_score !== '') {
+      const n = Number(opening.current_match_score);
+      mainScore = n > 10 ? Math.round(n) : Math.round(n * 10);
+    } else {
+      mainScore = getScoreFromAnalysis(opening.resume_analysis, 'match_score');
+    }
+    const scoreWrap = document.getElementById('opening-detail-score-wrap');
+    if (scoreWrap) {
+      if (mainScore != null && mainScore > 0) {
+        scoreWrap.hidden = false;
+        const scoreValueEl = document.getElementById('opening-detail-score-value');
+        const scoreBarEl = document.getElementById('opening-detail-score-bar');
+        if (scoreValueEl) {
+          scoreValueEl.textContent = mainScore;
+          scoreValueEl.style.color = scoreTierToColor(opening.score_tier);
+        }
+        if (scoreBarEl) {
+          scoreBarEl.style.width = Math.min(100, Math.max(0, mainScore)) + '%';
+        }
+        const analysis = opening.resume_analysis || {};
+        const skillScore = getScoreFromAnalysis(analysis, 'skill_match_score');
+        const experienceScore = getScoreFromAnalysis(analysis, 'experience_match_score');
+        const educationScore = getScoreFromAnalysis(analysis, 'education_match_score');
+        setCategoryScore('skill', skillScore);
+        setCategoryScore('experience', experienceScore);
+        setCategoryScore('education', educationScore);
+      } else {
+        scoreWrap.hidden = true;
+      }
+    }
+    const openLink = document.getElementById('opening-detail-open-url');
+    openLink.href = opening.url || '#';
+    openLink.hidden = !opening.url;
+    setListOnlyVisibility(false);
+    listView.hidden = true;
+    detailView.hidden = false;
+  }
+
+  function showOpeningsList() {
+    selectedOpening = null;
+    saveDrawerViewState('list', null);
+    const listView = document.getElementById('openings-list-view');
+    const detailView = document.getElementById('opening-detail-view');
+    if (listView) listView.hidden = false;
+    if (detailView) detailView.hidden = true;
+    setListOnlyVisibility(true);
+  }
+
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
       const worklistDeleteBtn = e.target.closest('button.drawer-worklist-item-delete');
@@ -477,6 +683,40 @@
         }
         return;
       }
+      const row = e.target.closest('.drawer-worklist-item[data-url]');
+      if (row) {
+        e.preventDefault();
+        e.stopPropagation();
+        const openingId = row.getAttribute('data-opening-id');
+        const url = row.getAttribute('data-url');
+        let opening = null;
+        if (openingId) {
+          const openings = lastOpeningsPayload?.data?.openings;
+          opening = Array.isArray(openings)
+            ? openings.find((o) => o != null && String(o.id) === openingId)
+            : null;
+          if (!opening) {
+            const companyEl = row.querySelector('.drawer-worklist-item-company');
+            const positionEl = row.querySelector('.drawer-worklist-item-position');
+            const resumeEl = row.querySelector('.drawer-worklist-item-resume-name');
+            const scoreBadge = row.querySelector('.drawer-worklist-match-badge');
+            opening = {
+              id: openingId,
+              url: url || undefined,
+              company: companyEl?.textContent?.trim() || '',
+              title: positionEl?.textContent?.trim() || '',
+              cv_filename: resumeEl?.textContent?.trim() || undefined,
+              current_match_score: scoreBadge?.textContent?.trim()?.replace(/%$/, '') || undefined
+            };
+          }
+        }
+        if (opening) {
+          showOpeningDetail(opening);
+        } else {
+          navigateToUrl(url);
+        }
+        return;
+      }
       const link = e.target.closest('a.drawer-opening-link');
       if (link?.href) {
         e.preventDefault();
@@ -484,16 +724,58 @@
         navigateToUrl(link.href);
         return;
       }
-      const row = e.target.closest('.drawer-worklist-item[data-url]');
-      if (row) {
-        e.preventDefault();
-        navigateToUrl(row.getAttribute('data-url'));
-        return;
-      }
       const queueItem = e.target.closest('.drawer-queue-item[data-url]');
       if (queueItem) {
         e.preventDefault();
         navigateToUrl(queueItem.getAttribute('data-url'));
+      }
+    });
+  }
+
+  const openingDetailBack = document.getElementById('opening-detail-back');
+  if (openingDetailBack) {
+    openingDetailBack.addEventListener('click', () => showOpeningsList());
+  }
+
+  const openingDetailFillForm = document.getElementById('opening-detail-fill-form');
+  if (openingDetailFillForm) {
+    openingDetailFillForm.addEventListener('click', () => {
+      if (!selectedOpening?.id || window.parent === window) return;
+      setAnalyzeStatus('', 'Filling form…');
+      window.parent.postMessage({ type: 'applica-fill-form', opening_id: String(selectedOpening.id) }, '*');
+    });
+  }
+
+  const openingDetailOpenUrl = document.getElementById('opening-detail-open-url');
+  if (openingDetailOpenUrl) {
+    openingDetailOpenUrl.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (selectedOpening?.url) navigateToUrl(selectedOpening.url);
+    });
+  }
+
+  const openingDetailRemove = document.getElementById('opening-detail-remove');
+  if (openingDetailRemove) {
+    openingDetailRemove.addEventListener('click', async () => {
+      if (!selectedOpening?.id) return;
+      setAnalyzeStatus('', 'Recording application…');
+      try {
+        const res = await window.ApplicaAPI.appFetch('/api/applications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ opening_id: String(selectedOpening.id) })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setAnalyzeStatus('error', data.message || 'Could not record application.');
+          return;
+        }
+        const personaId = personaPicker?.value;
+        if (personaId) await fetchOpenings(personaId);
+        showOpeningsList();
+        setAnalyzeStatus('', '');
+      } catch (err) {
+        setAnalyzeStatus('error', err?.message || 'Request failed.');
       }
     });
   }

@@ -64,19 +64,31 @@
   let iframeEl = null;
   let isOpen = false;
 
+  function getExtensionURL(path) {
+    try {
+      var rt = typeof chrome !== 'undefined' ? chrome.runtime : undefined;
+      if (rt && typeof rt.getURL === 'function') {
+        return rt.getURL(path);
+      }
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   function createDrawer() {
     if (drawerEl) return drawerEl;
 
     overlayEl = document.createElement('div');
     overlayEl.id = 'applica-drawer-overlay';
     overlayEl.className = 'applica-overlay';
-    overlayEl.addEventListener('click', closeDrawer);
+    /* Overlay is visual only; no click-to-close so the page stays interactive */
 
     drawerEl = document.createElement('div');
     drawerEl.id = 'applica-drawer';
     drawerEl.className = 'applica-drawer';
 
-    const logoUrl = chrome.runtime.getURL('images/applica_logo.png');
+    const logoUrl = getExtensionURL('images/applica_logo.png');
     const header = document.createElement('div');
     header.className = 'applica-drawer-header';
     header.innerHTML = `
@@ -89,7 +101,7 @@
     iframeEl = document.createElement('iframe');
     iframeEl.id = 'applica-drawer-frame';
     iframeEl.className = 'applica-drawer-frame';
-    iframeEl.src = chrome.runtime.getURL('drawer/drawer.html');
+    iframeEl.src = getExtensionURL('drawer/drawer.html');
     iframeEl.addEventListener('load', function onLoad() {
       if (isOpen) notifyDrawerOpened();
     });
@@ -176,7 +188,160 @@
         window.location.href = event.data.url;
       });
     }
+    if (event.data?.type === 'applica-fill-form' && event.data.opening_id) {
+      handleFillForm(event.source, event.data.opening_id);
+    }
   });
+
+  /**
+   * Fetch form_data for an opening (GET /api/openings/:id/form_details) and fill matching form fields on the page.
+   * Uses opening-specific resume/email etc. Does not create an application; that happens on "Applied, remove from worklist".
+   */
+  async function handleFillForm(drawerWindow, openingId) {
+    const sendResult = (result) => {
+      try {
+        drawerWindow.postMessage({ type: 'applica-fill-form-result', ...result }, '*');
+      } catch (e) {
+        console.debug('Applica: could not send fill-form result', e);
+      }
+    };
+    let origin;
+    let token;
+    try {
+      const data = await new Promise((resolve) => {
+        chrome.storage.local.get([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.APP_ORIGIN], resolve);
+      });
+      token = data[STORAGE_KEYS.AUTH_TOKEN];
+      origin = (data[STORAGE_KEYS.APP_ORIGIN] || DEFAULT_ORIGIN).replace(/\/$/, '');
+      if (!token) {
+        sendResult({ error: 'Not signed in.' });
+        return;
+      }
+    } catch (e) {
+      sendResult({ error: e?.message || 'Failed to get credentials.' });
+      return;
+    }
+    let formData;
+    try {
+      const res = await fetch(`${origin}/api/openings/${encodeURIComponent(openingId)}/form_details`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        sendResult({ error: body.message || 'Could not load form details.' });
+        return;
+      }
+      formData = body.form_data;
+      if (!formData || typeof formData !== 'object') {
+        sendResult({ error: 'Invalid response: form_data missing.' });
+        return;
+      }
+    } catch (e) {
+      sendResult({ error: e?.message || 'Request failed.' });
+      return;
+    }
+    const enrichedFormData = enrichFormDataWithSplitNames(formData);
+    const filled = fillFormFields(document, enrichedFormData);
+    const total = Object.keys(enrichedFormData).length;
+    sendResult({ filled, total });
+  }
+
+  /** Map our form_data keys to possible input name/id/placeholder/aria-label values (lowercase). */
+  const FORM_FIELD_MATCHERS = {
+    full_name: ['full_name', 'fullname', 'name', 'applicant_name', 'full-name'],
+    first_name: ['first_name', 'firstname', 'first-name', 'givenname', 'given_name', 'fname', 'first'],
+    last_name: ['last_name', 'lastname', 'last-name', 'surname', 'familyname', 'family_name', 'lname', 'last'],
+    email: ['email', 'e-mail', 'mail'],
+    phone: ['phone', 'telephone', 'mobile', 'cell', 'phonenumber'],
+    linkedin_url: ['linkedin', 'linked_in', 'linkedin_url', 'linkedinurl', 'linkedin_url'],
+    address: ['address', 'street', 'address1', 'address_line_1', 'address_line1'],
+    city: ['city'],
+    state: ['state', 'region', 'province'],
+    zip: ['zip', 'postal', 'postal_code', 'zipcode', 'postalcode'],
+    preferred_salary: ['salary', 'preferred_salary', 'compensation', 'expected_salary', 'salaryexpectation'],
+    is_willing_to_relocate: ['relocate', 'relocation', 'willingtorelocate', 'willing_to_relocate', 'open_to_relocation'],
+    willing_to_travel: ['travel', 'willingtotravel', 'willing_to_travel', 'travelrequired', 'travel_required'],
+    gender: ['gender', 'sex', 'eeogender', 'gender_identity'],
+    race: ['race', 'ethnicity', 'ethnic', 'eeorace', 'ethnicity_race', 'demographic'],
+    is_disabled: ['disability', 'disabled', 'eeodisability', 'has_disability', 'disability_status'],
+    disabilities: ['disabilities', 'disability_description', 'disability_detail', 'accommodation'],
+    is_veteran: ['veteran', 'veteranstatus', 'veteran_status', 'military', 'protected_veteran'],
+    requires_sponsorship: ['sponsorship', 'sponsor', 'work_authorization', 'workauthorization', 'visa', 'require_sponsorship', 'authorized_to_work']
+  };
+
+  function splitFullName(fullName) {
+    if (fullName == null || typeof fullName !== 'string') {
+      return { first_name: '', last_name: '' };
+    }
+    const parts = String(fullName).trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { first_name: '', last_name: '' };
+    if (parts.length === 1) return { first_name: parts[0], last_name: '' };
+    return {
+      first_name: parts[0],
+      last_name: parts.slice(1).join(' ')
+    };
+  }
+
+  function enrichFormDataWithSplitNames(formData) {
+    const enriched = { ...formData };
+    const full = formData.full_name;
+    if (full != null && String(full).trim() !== '') {
+      const { first_name, last_name } = splitFullName(full);
+      if (enriched.first_name == null) enriched.first_name = first_name;
+      if (enriched.last_name == null) enriched.last_name = last_name;
+    }
+    return enriched;
+  }
+
+  function normalizeForMatch(s) {
+    if (s == null || typeof s !== 'string') return '';
+    return s.toLowerCase().replace(/[\s_-]/g, '');
+  }
+
+  function fillFormFields(root, formData) {
+    const inputs = Array.from(root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea'));
+    const used = new Set();
+    let filledCount = 0;
+    for (const key of Object.keys(formData)) {
+      const value = formData[key];
+      if (value == null) continue;
+      const strVal = typeof value === 'boolean' ? (value ? 'yes' : '') : String(value).trim();
+      const matchers = FORM_FIELD_MATCHERS[key];
+      if (!matchers || matchers.length === 0) continue;
+      const normalizedMatchers = matchers.map(normalizeForMatch);
+      for (const el of inputs) {
+        if (used.has(el)) continue;
+        const name = normalizeForMatch(el.getAttribute('name'));
+        const id = normalizeForMatch(el.getAttribute('id') || '');
+        const placeholder = normalizeForMatch(el.getAttribute('placeholder') || '');
+        const ariaLabel = normalizeForMatch(el.getAttribute('aria-label') || '');
+        const type = (el.getAttribute('type') || '').toLowerCase();
+        const combined = name + id + placeholder + ariaLabel + (type === 'email' && key === 'email' ? 'email' : '');
+        const matches = normalizedMatchers.some((m) => combined.includes(m) || (key === 'email' && type === 'email'));
+        if (!matches) continue;
+        try {
+          if (el.tagName === 'SELECT') {
+            const opt = Array.from(el.options).find((o) => (o.value || o.text).trim() === strVal);
+            if (opt) { opt.selected = true; filledCount++; }
+          } else if (el.type === 'checkbox' || el.type === 'radio') {
+            el.checked = !!value;
+            filledCount++;
+          } else {
+            el.value = strVal;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            filledCount++;
+          }
+          used.add(el);
+          break;
+        } catch (_) {}
+      }
+    }
+    return filledCount;
+  }
 
   function isLoggedIn(cb) {
     chrome.storage.local.get([STORAGE_KEYS.AUTH_TOKEN], (data) => {
