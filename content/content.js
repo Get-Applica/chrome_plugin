@@ -82,7 +82,7 @@
     overlayEl = document.createElement('div');
     overlayEl.id = 'applica-drawer-overlay';
     overlayEl.className = 'applica-overlay';
-    overlayEl.addEventListener('click', closeDrawer);
+    /* Overlay is visual only; no click-to-close so the page stays interactive */
 
     drawerEl = document.createElement('div');
     drawerEl.id = 'applica-drawer';
@@ -194,8 +194,8 @@
   });
 
   /**
-   * Fetch form_data for an opening and fill matching form fields on the page.
-   * Matches fields by name, id, placeholder, aria-label (normalized, case-insensitive).
+   * Fetch form_data for an opening (GET /api/openings/:id/form_details) and fill matching form fields on the page.
+   * Uses opening-specific resume/email etc. Does not create an application; that happens on "Applied, remove from worklist".
    */
   async function handleFillForm(drawerWindow, openingId) {
     const sendResult = (result) => {
@@ -223,24 +223,21 @@
     }
     let formData;
     try {
-      const res = await fetch(`${origin}/api/applications`, {
-        method: 'POST',
+      const res = await fetch(`${origin}/api/openings/${encodeURIComponent(openingId)}/form_details`, {
+        method: 'GET',
         headers: {
           Accept: 'application/json',
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ opening_id: openingId })
+        }
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        sendResult({ error: body.message || 'Could not create application / load form data.' });
+        sendResult({ error: body.message || 'Could not load form details.' });
         return;
       }
-      const application = body.application;
-      formData = application?.form_data;
+      formData = body.form_data;
       if (!formData || typeof formData !== 'object') {
-        sendResult({ error: 'Invalid response: application.form_data missing.' });
+        sendResult({ error: 'Invalid response: form_data missing.' });
         return;
       }
     } catch (e) {

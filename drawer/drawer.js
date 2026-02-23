@@ -170,7 +170,7 @@
       listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
       if (openingsSection) openingsSection.hidden = false;
     }
-    tryShowDetailViewForCurrentPage();
+    applyDrawerViewState();
   }
 
   function tryShowDetailViewForCurrentPage() {
@@ -180,6 +180,26 @@
     const normalized = normalizeUrlForCompare(currentPageUrl);
     const opening = openings.find((o) => o && o.url && normalizeUrlForCompare(o.url) === normalized);
     if (opening) showOpeningDetail(opening);
+  }
+
+  async function applyDrawerViewState() {
+    const state = await loadDrawerViewState();
+    const openings = lastOpeningsPayload?.data?.openings || [];
+    if (state?.view === 'list') {
+      showOpeningsList();
+      return;
+    }
+    if (state?.view === 'detail' && state.openingId != null) {
+      const opening = openings.find((o) => o != null && String(o.id) === String(state.openingId));
+      if (opening) {
+        showOpeningDetail(opening);
+        return;
+      }
+      showOpeningsList();
+      saveDrawerViewState('list', null);
+      return;
+    }
+    tryShowDetailViewForCurrentPage();
   }
 
   function escapeHtml(s) {
@@ -213,6 +233,48 @@
       u = parsed.origin + parsed.pathname;
     } catch (_) {}
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
+  }
+
+  /** Map API score_tier to app brand color hex */
+  const SCORE_TIER_COLORS = {
+    green: '#70C494',
+    yellow: '#F2D75C',
+    orange: '#F29A4B',
+    red: '#D94A3A',
+    muted: '#333333'
+  };
+  function scoreTierToColor(tier) {
+    return SCORE_TIER_COLORS[String(tier).toLowerCase()] ?? SCORE_TIER_COLORS.muted;
+  }
+
+  /** Normalize score like app: 0–10 scale becomes 0–100 for display */
+  function normalizeScore(score) {
+    const n = Number(score);
+    if (n !== n) return 0;
+    if (n > 10) return Math.round(n);
+    return Math.round(n * 10);
+  }
+
+  function getScoreFromAnalysis(analysis, key) {
+    if (!analysis || typeof analysis !== 'object') return null;
+    const raw = analysis[key] ?? analysis.analysis?.[key];
+    if (raw == null) return null;
+    const n = normalizeScore(raw);
+    return n > 0 ? n : null;
+  }
+
+  function setCategoryScore(name, score) {
+    const wrap = document.getElementById('opening-detail-score-' + name);
+    const valueEl = document.getElementById('opening-detail-score-' + name + '-value');
+    const barEl = document.getElementById('opening-detail-score-' + name + '-bar');
+    if (!wrap) return;
+    if (score != null && score > 0) {
+      wrap.hidden = false;
+      if (valueEl) valueEl.textContent = score;
+      if (barEl) barEl.style.width = Math.min(100, Math.max(0, score)) + '%';
+    } else {
+      wrap.hidden = true;
+    }
   }
 
   const trashIconSvg =
@@ -264,10 +326,12 @@
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
     const dataOpeningId = o.id != null ? ' data-opening-id="' + escapeHtml(String(o.id)) + '"' : '';
     const hasResume = o.cv_filename != null && String(o.cv_filename).trim() !== '';
-    const resumePart =
-      hasResume
-        ? '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + escapeHtml(String(o.cv_filename)) + '</span></div>'
-        : '';
+    const resumeName = hasResume ? escapeHtml(String(o.cv_filename)) : '';
+    const resumePart = hasResume
+      ? (o.cv_url
+          ? '<div class="drawer-worklist-item-resume">Resume: <a class="drawer-worklist-item-resume-name" href="' + escapeHtml(o.cv_url) + '" target="_blank" rel="noopener">' + resumeName + '</a></div>'
+          : '<div class="drawer-worklist-item-resume">Resume: <span class="drawer-worklist-item-resume-name">' + resumeName + '</span></div>')
+      : '';
     const deleteBtn =
       '<button type="button" class="drawer-worklist-item-delete" aria-label="Remove from worklist"' +
       dataOpeningId +
@@ -351,6 +415,43 @@
     } else {
       showSection('login');
     }
+  }
+
+  const DRAWER_VIEW_STATE_KEY = 'applica_drawer_view_state';
+
+  function saveDrawerViewState(view, openingId) {
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+        chrome.storage.local.set({
+          [DRAWER_VIEW_STATE_KEY]: { view, openingId: openingId ?? null }
+        }, () => {});
+      }
+    } catch (_) {}
+  }
+
+  function loadDrawerViewState() {
+    return new Promise((resolve) => {
+      try {
+        if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
+          resolve(null);
+          return;
+        }
+        chrome.storage.local.get([DRAWER_VIEW_STATE_KEY], (data) => {
+          try {
+            const raw = data?.[DRAWER_VIEW_STATE_KEY];
+            if (raw && (raw.view === 'list' || raw.view === 'detail')) {
+              resolve({ view: raw.view, openingId: raw.openingId ?? null });
+            } else {
+              resolve(null);
+            }
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
   }
 
   let currentPageUrl = null;
@@ -502,6 +603,7 @@
 
   function showOpeningDetail(opening) {
     selectedOpening = opening;
+    saveDrawerViewState('detail', opening.id ?? null);
     const listView = document.getElementById('openings-list-view');
     const detailView = document.getElementById('opening-detail-view');
     if (!listView || !detailView) return;
@@ -510,10 +612,37 @@
     const resumeEl = document.getElementById('opening-detail-resume');
     resumeEl.textContent = opening.cv_filename ? 'Resume: ' + opening.cv_filename : '';
     resumeEl.hidden = !opening.cv_filename;
-    const scoreEl = document.getElementById('opening-detail-score');
-    const score = opening.current_match_score;
-    scoreEl.textContent = score != null && score !== '' ? 'Match: ' + score + '%' : '';
-    scoreEl.hidden = score == null || score === '';
+    let mainScore = null;
+    if (opening.current_match_score != null && opening.current_match_score !== '') {
+      const n = Number(opening.current_match_score);
+      mainScore = n > 10 ? Math.round(n) : Math.round(n * 10);
+    } else {
+      mainScore = getScoreFromAnalysis(opening.resume_analysis, 'match_score');
+    }
+    const scoreWrap = document.getElementById('opening-detail-score-wrap');
+    if (scoreWrap) {
+      if (mainScore != null && mainScore > 0) {
+        scoreWrap.hidden = false;
+        const scoreValueEl = document.getElementById('opening-detail-score-value');
+        const scoreBarEl = document.getElementById('opening-detail-score-bar');
+        if (scoreValueEl) {
+          scoreValueEl.textContent = mainScore;
+          scoreValueEl.style.color = scoreTierToColor(opening.score_tier);
+        }
+        if (scoreBarEl) {
+          scoreBarEl.style.width = Math.min(100, Math.max(0, mainScore)) + '%';
+        }
+        const analysis = opening.resume_analysis || {};
+        const skillScore = getScoreFromAnalysis(analysis, 'skill_match_score');
+        const experienceScore = getScoreFromAnalysis(analysis, 'experience_match_score');
+        const educationScore = getScoreFromAnalysis(analysis, 'education_match_score');
+        setCategoryScore('skill', skillScore);
+        setCategoryScore('experience', experienceScore);
+        setCategoryScore('education', educationScore);
+      } else {
+        scoreWrap.hidden = true;
+      }
+    }
     const openLink = document.getElementById('opening-detail-open-url');
     openLink.href = opening.url || '#';
     openLink.hidden = !opening.url;
@@ -524,6 +653,7 @@
 
   function showOpeningsList() {
     selectedOpening = null;
+    saveDrawerViewState('list', null);
     const listView = document.getElementById('openings-list-view');
     const detailView = document.getElementById('opening-detail-view');
     if (listView) listView.hidden = false;
@@ -618,8 +748,25 @@
   if (openingDetailRemove) {
     openingDetailRemove.addEventListener('click', async () => {
       if (!selectedOpening?.id) return;
-      await handleDeleteQueueItem(selectedOpening.id);
-      showOpeningsList();
+      setAnalyzeStatus('', 'Recording application…');
+      try {
+        const res = await window.ApplicaAPI.appFetch('/api/applications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ opening_id: String(selectedOpening.id) })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setAnalyzeStatus('error', data.message || 'Could not record application.');
+          return;
+        }
+        const personaId = personaPicker?.value;
+        if (personaId) await fetchOpenings(personaId);
+        showOpeningsList();
+        setAnalyzeStatus('', '');
+      } catch (err) {
+        setAnalyzeStatus('error', err?.message || 'Request failed.');
+      }
     });
   }
 

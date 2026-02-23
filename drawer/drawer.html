@@ -90,12 +90,52 @@
             <h3 id="opening-detail-company" class="drawer-opening-detail-company"></h3>
             <p id="opening-detail-position" class="drawer-opening-detail-position"></p>
             <p id="opening-detail-resume" class="drawer-opening-detail-resume"></p>
-            <p id="opening-detail-score" class="drawer-opening-detail-score"></p>
+            <div id="opening-detail-score-wrap" class="drawer-opening-detail-score-wrap" hidden>
+              <div class="drawer-score-block">
+                <div class="drawer-score-main">
+                  <div id="opening-detail-score-value" class="drawer-score-value"></div>
+                  <div class="drawer-score-bar-track">
+                    <div id="opening-detail-score-bar" class="drawer-score-bar-fill"></div>
+                  </div>
+                </div>
+                <div class="drawer-score-categories">
+                  <h4 class="drawer-score-categories-title">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-score-categories-icon" aria-hidden="true"><line x1="12" x2="12" y1="20" y2="10"></line><line x1="18" x2="18" y1="20" y2="4"></line><line x1="6" x2="6" y1="20" y2="16"></line></svg>
+              Category Scores
+            </h4>
+                  <div class="drawer-score-categories-grid">
+                    <div id="opening-detail-score-skill" class="drawer-score-category" hidden>
+                      <div class="drawer-score-category-head">
+                        <span class="drawer-score-category-label">Skill Match Score</span>
+                        <span id="opening-detail-score-skill-value" class="drawer-score-category-value drawer-score-category-value--teal"></span>
+                      </div>
+                      <div class="drawer-score-category-track"><div id="opening-detail-score-skill-bar" class="drawer-score-category-fill drawer-score-category-fill--teal"></div></div>
+                    </div>
+                    <div id="opening-detail-score-experience" class="drawer-score-category" hidden>
+                      <div class="drawer-score-category-head">
+                        <span class="drawer-score-category-label">Experience Match</span>
+                        <span id="opening-detail-score-experience-value" class="drawer-score-category-value drawer-score-category-value--orange"></span>
+                      </div>
+                      <div class="drawer-score-category-track"><div id="opening-detail-score-experience-bar" class="drawer-score-category-fill drawer-score-category-fill--orange"></div></div>
+                    </div>
+                    <div id="opening-detail-score-education" class="drawer-score-category" hidden>
+                      <div class="drawer-score-category-head">
+                        <span class="drawer-score-category-label">Education Match</span>
+                        <span id="opening-detail-score-education-value" class="drawer-score-category-value drawer-score-category-value--green"></span>
+                      </div>
+                      <div class="drawer-score-category-track"><div id="opening-detail-score-education-bar" class="drawer-score-category-fill drawer-score-category-fill--green"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="drawer-opening-detail-actions">
               <a href="#" id="opening-detail-open-url" class="btn btn-secondary drawer-opening-detail-open-link">Open job posting</a>
               <button type="button" class="btn btn-primary" id="opening-detail-fill-form">Fill out form</button>
+
+              <button type="button" class="btn btn-ghost drawer-opening-detail-remove" id="opening-detail-remove">Applied, remove from worklist</button>
             </div>
-            <button type="button" class="btn btn-ghost drawer-opening-detail-remove" id="opening-detail-remove">Applied, remove from worklist</button>
+            
           </div>
         </div>
       </div>
