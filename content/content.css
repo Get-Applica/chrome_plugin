@@ -5,13 +5,15 @@
 
 @import url("https://fonts.googleapis.com/css2?family=Kantumruy+Pro:ital,wght@0,100..700;1,100..700&display=swap");
 
+/* Overlay is visual only (light dim); pointer-events: none so the page stays interactive */
 .applica-overlay {
   position: fixed;
   inset: 0;
   z-index: 2147483646;
-  background: rgba(51, 51, 51, 0.35);
+  background: rgba(51, 51, 51, 0.2);
   opacity: 0;
   visibility: hidden;
+  pointer-events: none;
   transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 
@@ -101,8 +103,4 @@
   border: none;
   width: 100%;
   min-height: 0;
-}
-
-body.applica-drawer-open {
-  overflow: hidden;
 }
