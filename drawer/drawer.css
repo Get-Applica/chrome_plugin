@@ -251,6 +251,16 @@ body {
   color: rgba(51, 51, 51, 0.6);
 }
 
+.drawer-opening-detail-resume-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.drawer-opening-detail-resume-link:hover {
+  text-decoration: underline;
+  color: #333333;
+}
+
 /* Match score block - mirrors app match_score component */
 .drawer-opening-detail-score-wrap {
   margin: 0 0 1rem;

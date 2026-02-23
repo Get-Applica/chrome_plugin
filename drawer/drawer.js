@@ -610,8 +610,18 @@
     document.getElementById('opening-detail-company').textContent = opening.company || '—';
     document.getElementById('opening-detail-position').textContent = opening.title || '—';
     const resumeEl = document.getElementById('opening-detail-resume');
-    resumeEl.textContent = opening.cv_filename ? 'Resume: ' + opening.cv_filename : '';
-    resumeEl.hidden = !opening.cv_filename;
+    if (opening.cv_filename) {
+      if (opening.cv_url) {
+        resumeEl.innerHTML =
+          'Resume: <a href="' + escapeHtml(opening.cv_url) + '" class="drawer-opening-detail-resume-link" download target="_blank" rel="noopener">' + escapeHtml(opening.cv_filename) + '</a>';
+      } else {
+        resumeEl.textContent = 'Resume: ' + opening.cv_filename;
+      }
+      resumeEl.hidden = false;
+    } else {
+      resumeEl.textContent = '';
+      resumeEl.hidden = true;
+    }
     let mainScore = null;
     if (opening.current_match_score != null && opening.current_match_score !== '') {
       const n = Number(opening.current_match_score);
