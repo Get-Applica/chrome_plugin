@@ -163,7 +163,8 @@
     if (event.data?.type === 'applica-drawer-ready') {
       if (isOpen) {
         notifyDrawerOpened();
-        handleGetPersonas(event.source);
+        // Do not fetch personas from content script: fetch runs in page context and is blocked by CORS
+        // on strict sites (e.g. Workday). The drawer iframe (extension origin) will fetch on applica-drawer-opened.
       }
       return;
     }
@@ -188,16 +189,16 @@
         window.location.href = event.data.url;
       });
     }
-    if (event.data?.type === 'applica-fill-form' && event.data.opening_id) {
-      handleFillForm(event.source, event.data.opening_id);
+    if (event.data?.type === 'applica-fill-form-with-data' && event.data.form_data) {
+      handleFillFormWithData(event.source, event.data.form_data);
     }
   });
 
   /**
-   * Fetch form_data for an opening (GET /api/openings/:id/form_details) and fill matching form fields on the page.
-   * Uses opening-specific resume/email etc. Does not create an application; that happens on "Applied, remove from worklist".
+   * Fill matching form fields on the page using form_data from the drawer.
+   * The drawer (extension iframe) fetches form_details; we only run in page context to access the DOM.
    */
-  async function handleFillForm(drawerWindow, openingId) {
+  function handleFillFormWithData(drawerWindow, formData) {
     const sendResult = (result) => {
       try {
         drawerWindow.postMessage({ type: 'applica-fill-form-result', ...result }, '*');
@@ -205,49 +206,14 @@
         console.debug('Applica: could not send fill-form result', e);
       }
     };
-    let origin;
-    let token;
     try {
-      const data = await new Promise((resolve) => {
-        chrome.storage.local.get([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.APP_ORIGIN], resolve);
-      });
-      token = data[STORAGE_KEYS.AUTH_TOKEN];
-      origin = (data[STORAGE_KEYS.APP_ORIGIN] || DEFAULT_ORIGIN).replace(/\/$/, '');
-      if (!token) {
-        sendResult({ error: 'Not signed in.' });
-        return;
-      }
+      const enrichedFormData = enrichFormDataWithSplitNames(formData);
+      const filled = fillFormFields(document, enrichedFormData);
+      const total = Object.keys(enrichedFormData).length;
+      sendResult({ filled, total });
     } catch (e) {
-      sendResult({ error: e?.message || 'Failed to get credentials.' });
-      return;
+      sendResult({ error: e?.message || 'Failed to fill form.' });
     }
-    let formData;
-    try {
-      const res = await fetch(`${origin}/api/openings/${encodeURIComponent(openingId)}/form_details`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`
-        }
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        sendResult({ error: body.message || 'Could not load form details.' });
-        return;
-      }
-      formData = body.form_data;
-      if (!formData || typeof formData !== 'object') {
-        sendResult({ error: 'Invalid response: form_data missing.' });
-        return;
-      }
-    } catch (e) {
-      sendResult({ error: e?.message || 'Request failed.' });
-      return;
-    }
-    const enrichedFormData = enrichFormDataWithSplitNames(formData);
-    const filled = fillFormFields(document, enrichedFormData);
-    const total = Object.keys(enrichedFormData).length;
-    sendResult({ filled, total });
   }
 
   /** Map our form_data keys to possible input name/id/placeholder/aria-label values (lowercase). */
@@ -378,9 +344,18 @@
     apiGet(`/api/openings?persona_id=${encodeURIComponent(personaId)}`, cb);
   }
 
+  function showDrawerApiErrorBanner(targetWindow) {
+    try {
+      if (targetWindow) targetWindow.postMessage({ type: 'applica-show-api-error-banner' }, '*');
+    } catch (e) {
+      console.debug('Applica: could not show API error banner in drawer', e);
+    }
+  }
+
   function handleGetPersonas(targetWindow) {
     fetchPersonas((result) => {
       try {
+        if (result.error) showDrawerApiErrorBanner(targetWindow);
         targetWindow.postMessage({ type: 'applica-personas', ...result }, '*');
       } catch (e) {
         console.debug('Applica: could not post personas to drawer', e);
@@ -391,6 +366,7 @@
   function handleGetOpenings(targetWindow, personaId) {
     fetchOpenings(personaId, (result) => {
       try {
+        if (result.error) showDrawerApiErrorBanner(targetWindow);
         targetWindow.postMessage({ type: 'applica-openings', ...result }, '*');
       } catch (e) {
         console.debug('Applica: could not post openings to drawer', e);
