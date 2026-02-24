@@ -268,6 +268,75 @@
     return s.toLowerCase().replace(/[\s_-]/g, '');
   }
 
+  /** Keys that are booleans in form_data; their dropdowns often use Yes/No or similar. */
+  const BOOLEAN_SELECT_KEYS = ['is_disabled', 'is_veteran', 'is_willing_to_relocate', 'willing_to_travel', 'requires_sponsorship'];
+
+  /**
+   * Find the best matching <option> in a select for our form_data value.
+   * - Booleans: match "Yes"/"No", "True"/"False", "I don't wish to answer", etc.
+   * - Strings (gender, race): exact normalized match, or option text contains our value / our value contains option.
+   */
+  function findMatchingOption(selectEl, key, value, strVal) {
+    const options = Array.from(selectEl.options).filter((o) => !o.disabled);
+    if (options.length === 0) return null;
+    const isBooleanKey = BOOLEAN_SELECT_KEYS.includes(key);
+    const normalizedStrVal = normalizeForMatch(strVal);
+
+    if (isBooleanKey && typeof value === 'boolean') {
+      const forTrue = ['yes', 'true', '1', 'y'];
+      const forFalse = ['no', 'false', '0', 'n', 'prefernottosay', 'decline', 'dontwish', 'idontwish', 'rathernot', 'choosenot', 'noanswer', 'notspecified', 'none', 'na'];
+      const accept = value ? forTrue : forFalse;
+      const optMatches = (o) => {
+        const v = normalizeForMatch((o.value != null && o.value !== '' ? o.value : o.text) || '');
+        if (!v) return false;
+        return accept.includes(v) || accept.some((a) => v.includes(a) || a.includes(v));
+      };
+      return options.find(optMatches) || null;
+    }
+
+    for (const o of options) {
+      const optVal = (o.value != null && o.value !== '' ? o.value : o.text) || '';
+      const optNorm = normalizeForMatch(optVal);
+      if (optNorm && optNorm === normalizedStrVal) return o;
+    }
+    for (const o of options) {
+      const optVal = (o.value != null && o.value !== '' ? o.value : o.text) || '';
+      const optNorm = normalizeForMatch(optVal);
+      if (!optNorm || !normalizedStrVal) continue;
+      if (optNorm.includes(normalizedStrVal) || normalizedStrVal.includes(optNorm)) return o;
+    }
+    return null;
+  }
+
+  /**
+   * Get label text associated with a form field (for matching when name/id/placeholder are missing).
+   * Checks: label[for=id], parent <label>, preceding sibling <label>, and label in previous sibling container.
+   */
+  function getLabelTextForField(root, el) {
+    const parts = [];
+    const id = el.getAttribute('id');
+    if (id) {
+      const labelByFor = root.querySelector('label[for="' + CSS.escape(id) + '"]');
+      if (labelByFor && labelByFor.textContent) parts.push(labelByFor.textContent.trim());
+    }
+    let parent = el.parentElement;
+    if (parent && parent.tagName === 'LABEL' && parent.textContent) {
+      parts.push(parent.textContent.trim());
+    }
+    let prev = el.previousElementSibling;
+    if (prev && prev.tagName === 'LABEL' && prev.textContent) {
+      parts.push(prev.textContent.trim());
+    }
+    while (parent && parent !== root) {
+      const prevCell = parent.previousElementSibling;
+      if (prevCell && prevCell.tagName === 'LABEL' && prevCell.textContent) {
+        parts.push(prevCell.textContent.trim());
+      }
+      parent = parent.parentElement;
+    }
+    return parts.join(' ');
+  }
+
   function fillFormFields(root, formData) {
     const inputs = Array.from(root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea'));
     const used = new Set();
@@ -285,14 +354,19 @@
         const id = normalizeForMatch(el.getAttribute('id') || '');
         const placeholder = normalizeForMatch(el.getAttribute('placeholder') || '');
         const ariaLabel = normalizeForMatch(el.getAttribute('aria-label') || '');
+        const labelText = normalizeForMatch(getLabelTextForField(root, el));
         const type = (el.getAttribute('type') || '').toLowerCase();
-        const combined = name + id + placeholder + ariaLabel + (type === 'email' && key === 'email' ? 'email' : '');
+        const combined = name + id + placeholder + ariaLabel + labelText + (type === 'email' && key === 'email' ? 'email' : '');
         const matches = normalizedMatchers.some((m) => combined.includes(m) || (key === 'email' && type === 'email'));
         if (!matches) continue;
         try {
           if (el.tagName === 'SELECT') {
-            const opt = Array.from(el.options).find((o) => (o.value || o.text).trim() === strVal);
-            if (opt) { opt.selected = true; filledCount++; }
+            const opt = findMatchingOption(el, key, value, strVal);
+            if (opt) {
+              opt.selected = true;
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              filledCount++;
+            }
           } else if (el.type === 'checkbox' || el.type === 'radio') {
             el.checked = !!value;
             filledCount++;
