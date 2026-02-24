@@ -13,6 +13,19 @@
   const openLoginTabBtn = document.getElementById('open-login-tab');
   const signOutBtn = document.getElementById('sign-out-btn');
   const closeDrawerBtn = document.getElementById('close-drawer');
+  const apiErrorBanner = document.getElementById('api-error-banner');
+
+  let apiErrorBannerTimeout = null;
+
+  function showApiErrorBanner() {
+    if (!apiErrorBanner) return;
+    if (apiErrorBannerTimeout) clearTimeout(apiErrorBannerTimeout);
+    apiErrorBanner.hidden = false;
+    apiErrorBannerTimeout = setTimeout(() => {
+      apiErrorBanner.hidden = true;
+      apiErrorBannerTimeout = null;
+    }, 5000);
+  }
 
   function showSection(section) {
     loginSection.hidden = section !== 'login';
@@ -27,11 +40,13 @@
       const res = await window.ApplicaAPI.appFetch('/api/personas');
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        showApiErrorBanner();
         renderPersonas({ loggedIn: false, error: data.message || 'Failed to load' });
         return;
       }
       renderPersonas({ loggedIn: true, data });
     } catch (err) {
+      showApiErrorBanner();
       const msg = err?.message || 'Failed to load personas';
       const hint = msg.includes('failed') || msg.includes('CORS') || msg.includes('fetch')
         ? ' Check that the app is running and the app URL is correct.'
@@ -62,6 +77,7 @@
       const res = await window.ApplicaAPI.appFetch(`/api/openings?persona_id=${encodeURIComponent(personaId)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        showApiErrorBanner();
         lastOpeningsSnapshot = null;
         renderOpenings({ loggedIn: true, error: data.message || 'Failed to load' });
         return;
@@ -75,6 +91,7 @@
       lastOpeningsSnapshot = snapshot;
       renderOpenings({ loggedIn: true, data });
     } catch (err) {
+      showApiErrorBanner();
       lastOpeningsSnapshot = null;
       const msg = err?.message || 'Failed to load openings';
       const hint = msg.includes('failed') || msg.includes('CORS') || msg.includes('fetch')
@@ -467,9 +484,13 @@
     if (event.data?.type === 'applica-page-data') {
       handlePageDataForAnalyze(event.data);
     }
+    if (event.data?.type === 'applica-show-api-error-banner') {
+      showApiErrorBanner();
+    }
     if (event.data?.type === 'applica-fill-form-result') {
       const r = event.data;
       if (r.error) {
+        showApiErrorBanner();
         setAnalyzeStatus('error', r.error);
       } else if (r.filled != null && r.total != null) {
         setAnalyzeStatus('', r.filled > 0 ? `Filled ${r.filled} of ${r.total} fields.` : 'No matching form fields found.');
@@ -538,6 +559,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        showApiErrorBanner();
         currentAnalyzingOpening = null;
         renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
         setAnalyzeStatus('error', data.message || 'Failed to add opening');
@@ -548,6 +570,7 @@
       startOpeningsPoll(personaId, 60000);
       setTimeout(() => setAnalyzeStatus('', ''), 3000);
     } catch (err) {
+      showApiErrorBanner();
       currentAnalyzingOpening = null;
       renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
       setAnalyzeStatus('error', err?.message || 'Request failed');
@@ -583,10 +606,12 @@
       if (res.ok) {
         fetchOpenings(personaId);
       } else {
+        showApiErrorBanner();
         const data = await res.json().catch(() => ({}));
         setAnalyzeStatus('error', data.message || 'Could not remove.');
       }
     } catch (err) {
+      showApiErrorBanner();
       setAnalyzeStatus('error', err?.message || 'Could not remove.');
     }
   }
@@ -739,10 +764,30 @@
 
   const openingDetailFillForm = document.getElementById('opening-detail-fill-form');
   if (openingDetailFillForm) {
-    openingDetailFillForm.addEventListener('click', () => {
+    openingDetailFillForm.addEventListener('click', async () => {
       if (!selectedOpening?.id || window.parent === window) return;
       setAnalyzeStatus('', 'Filling form…');
-      window.parent.postMessage({ type: 'applica-fill-form', opening_id: String(selectedOpening.id) }, '*');
+      try {
+        const res = await window.ApplicaAPI.appFetch(
+          '/api/openings/' + encodeURIComponent(selectedOpening.id) + '/form_details'
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showApiErrorBanner();
+          setAnalyzeStatus('error', data.message || 'Could not load form details.');
+          return;
+        }
+        const formData = data.form_data;
+        if (!formData || typeof formData !== 'object') {
+          showApiErrorBanner();
+          setAnalyzeStatus('error', 'Invalid response: form_data missing.');
+          return;
+        }
+        window.parent.postMessage({ type: 'applica-fill-form-with-data', form_data: formData }, '*');
+      } catch (err) {
+        showApiErrorBanner();
+        setAnalyzeStatus('error', err?.message || 'Request failed.');
+      }
     });
   }
 
@@ -767,6 +812,7 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          showApiErrorBanner();
           setAnalyzeStatus('error', data.message || 'Could not record application.');
           return;
         }
@@ -775,6 +821,7 @@
         showOpeningsList();
         setAnalyzeStatus('', '');
       } catch (err) {
+        showApiErrorBanner();
         setAnalyzeStatus('error', err?.message || 'Request failed.');
       }
     });
