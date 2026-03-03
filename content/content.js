@@ -5,6 +5,10 @@
  */
 
 (function () {
+  // Idempotent: when injected on click (any page), avoid running twice
+  if (window.__applicaContentInjected) return;
+  window.__applicaContentInjected = true;
+
   const DRAWER_WIDTH = 500;
   const EXTENSION_CALLBACK_PATH = '/user/log_in/extension_callback';
   const STORAGE_KEYS = { AUTH_TOKEN: 'applica_auth_token', APP_ORIGIN: 'applica_app_origin', REOPEN_DRAWER_TS: 'applica_reopen_drawer_ts' };
@@ -41,6 +45,7 @@
           );
         });
         chrome.runtime.sendMessage({ type: 'APPLICA_STORE_TOKEN_DONE', closeTab: true });
+        window.close(); // Tab was opened by extension; no "tabs" permission needed
       } catch (err) {
         showCallbackError(err?.message || 'Request failed.');
       }
