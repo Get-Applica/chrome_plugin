@@ -22,7 +22,6 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*/*",
         "http://localhost:4000/*"
       ],
       "js": [

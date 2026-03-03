@@ -626,6 +626,11 @@
     }
   }
 
+  function setQueueVisibility(visible) {
+    const queueBlock = document.getElementById('score-queue-section-content');
+    if (queueBlock) queueBlock.hidden = !visible;
+  }
+
   function showOpeningDetail(opening) {
     selectedOpening = opening;
     saveDrawerViewState('detail', opening.id ?? null);
@@ -682,6 +687,7 @@
     openLink.href = opening.url || '#';
     openLink.hidden = !opening.url;
     setListOnlyVisibility(false);
+    setQueueVisibility(false);
     listView.hidden = true;
     detailView.hidden = false;
   }
@@ -694,6 +700,7 @@
     if (listView) listView.hidden = false;
     if (detailView) detailView.hidden = true;
     setListOnlyVisibility(true);
+    setQueueVisibility(true);
   }
 
   if (scoreQueueSection) {
