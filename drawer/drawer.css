@@ -237,6 +237,47 @@ body {
   flex-shrink: 0;
 }
 
+/* Matching applications reminder - below back, above score */
+.drawer-detail-matching-apps {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border-left: 3px solid #F29A4B;
+  background: rgba(242, 154, 75, 0.12);
+  font-size: 0.8125rem;
+  color: rgba(51, 51, 51, 0.9);
+  line-height: 1.45;
+}
+
+.drawer-detail-matching-apps-title {
+  font-weight: 600;
+  color: #333333;
+  margin-bottom: 0.5rem;
+}
+
+.drawer-detail-matching-apps-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.drawer-detail-matching-apps-item {
+  margin-bottom: 0.25rem;
+}
+
+.drawer-detail-matching-apps-item:last-child {
+  margin-bottom: 0;
+}
+
+.drawer-detail-matching-apps-company {
+  font-weight: 600;
+}
+
+.drawer-detail-matching-apps-date {
+  color: rgba(51, 51, 51, 0.65);
+  font-size: 0.75rem;
+}
+
 .drawer-opening-detail-content {
   border: 1px solid rgba(175, 223, 223, 0.3);
   border-radius: 0.5rem;
@@ -544,6 +585,18 @@ body {
   flex-direction: row;
   align-items: center;
   gap: 0.25rem;
+}
+
+.drawer-worklist-matching-apps-wrap {
+  display: inline-flex;
+  align-items: center;
+  color: #F29A4B;
+  flex-shrink: 0;
+}
+
+.drawer-worklist-matching-apps-warning {
+  width: 16px;
+  height: 16px;
 }
 
 .drawer-worklist-item-delete {
