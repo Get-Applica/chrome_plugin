@@ -297,6 +297,9 @@
   const trashIconSvg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-queue-item-trash-icon" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>';
 
+  const matchingAppsWarningIconSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="drawer-worklist-matching-apps-warning" aria-label="Has matching applications at this company"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+
   function queueItemHtml(o, isInProgress) {
     const inProgress = !!isInProgress;
     const title = [o.company, o.title].filter(Boolean).join(' - ') || '';
@@ -330,6 +333,10 @@
     const scoreNum =
       score != null && score !== '' && score != 0 ? Number(score) : null;
     const tier = (o.score_tier && escapeHtml(String(o.score_tier))) || 'muted';
+    const hasMatchingApps = Array.isArray(o.matching_applications) && o.matching_applications.length > 0;
+    const matchingAppsWarning = hasMatchingApps
+      ? '<span class="drawer-worklist-matching-apps-wrap" title="You have applied to roles at this company">' + matchingAppsWarningIconSvg + '</span>'
+      : '';
     const scoreHtml =
       scoreNum != null
         ? '<span class="drawer-worklist-match-badge drawer-worklist-match-badge--' + tier + '">' + scoreNum + '%</span>'
@@ -368,6 +375,7 @@
       '</div><div class="drawer-worklist-item-position">' +
       position +
       '</div></div><div class="drawer-worklist-item-score-wrap">' +
+      matchingAppsWarning +
       scoreHtml +
       deleteBtn +
       '</div></div>' +
@@ -637,6 +645,31 @@
     const listView = document.getElementById('openings-list-view');
     const detailView = document.getElementById('opening-detail-view');
     if (!listView || !detailView) return;
+    const matchingAppsEl = document.getElementById('opening-detail-matching-apps');
+    const matchingAppsTitleEl = matchingAppsEl?.querySelector('.drawer-detail-matching-apps-title');
+    const matchingAppsListEl = matchingAppsEl?.querySelector('.drawer-detail-matching-apps-list');
+    const apps = opening.matching_applications;
+    if (matchingAppsEl && Array.isArray(apps) && apps.length > 0) {
+      matchingAppsEl.hidden = false;
+      if (matchingAppsTitleEl) {
+        matchingAppsTitleEl.textContent = 'You have applied at this company:';
+      }
+      if (matchingAppsListEl) {
+        matchingAppsListEl.innerHTML = apps.map((a) => {
+          const company = escapeHtml(a.company || '');
+          const title = escapeHtml(a.title || '');
+          const appliedAt = a.applied_at ? escapeHtml(String(a.applied_at).slice(0, 10)) : '';
+          return '<li class="drawer-detail-matching-apps-item">' +
+            (company ? '<span class="drawer-detail-matching-apps-company">' + company + '</span>' : '') +
+            (title ? ' – ' + title : '') +
+            (appliedAt ? ' <span class="drawer-detail-matching-apps-date">(' + appliedAt + ')</span>' : '') +
+            '</li>';
+        }).join('');
+      }
+    } else if (matchingAppsEl) {
+      matchingAppsEl.hidden = true;
+    }
+
     document.getElementById('opening-detail-company').textContent = opening.company || '—';
     document.getElementById('opening-detail-position').textContent = opening.title || '—';
     const resumeEl = document.getElementById('opening-detail-resume');
