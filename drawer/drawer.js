@@ -733,7 +733,11 @@
     if (listView) listView.hidden = false;
     if (detailView) detailView.hidden = true;
     setListOnlyVisibility(true);
-    setQueueVisibility(true);
+    const queueBlock = document.getElementById('score-queue-section-content');
+    const queueEl = document.getElementById('score-queue-list');
+    if (queueBlock && queueEl) {
+      queueBlock.hidden = queueEl.innerHTML.trim() === '';
+    }
   }
 
   if (scoreQueueSection) {
