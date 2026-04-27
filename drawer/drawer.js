@@ -41,17 +41,17 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showApiErrorBanner();
-        renderPersonas({ loggedIn: false, error: data.message || 'Failed to load' });
+        await renderPersonas({ loggedIn: false, error: data.message || 'Failed to load' });
         return;
       }
-      renderPersonas({ loggedIn: true, data });
+      await renderPersonas({ loggedIn: true, data });
     } catch (err) {
       showApiErrorBanner();
       const msg = err?.message || 'Failed to load personas';
       const hint = msg.includes('failed') || msg.includes('CORS') || msg.includes('fetch')
         ? ' Check that the app is running and the app URL is correct.'
         : '';
-      renderPersonas({ loggedIn: false, error: msg + hint });
+      await renderPersonas({ loggedIn: false, error: msg + hint });
     }
   }
 
@@ -405,7 +405,40 @@
     }
   }
 
-  function renderPersonas(payload) {
+  const DRAWER_SELECTED_PERSONA_KEY = 'applica_drawer_selected_persona_id';
+
+  function saveSelectedPersonaId(personaId) {
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+        chrome.storage.local.set({
+          [DRAWER_SELECTED_PERSONA_KEY]: personaId ? String(personaId) : null
+        }, () => {});
+      }
+    } catch (_) {}
+  }
+
+  function loadSelectedPersonaId() {
+    return new Promise((resolve) => {
+      try {
+        if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
+          resolve(null);
+          return;
+        }
+        chrome.storage.local.get([DRAWER_SELECTED_PERSONA_KEY], (data) => {
+          try {
+            const raw = data?.[DRAWER_SELECTED_PERSONA_KEY];
+            resolve(raw != null && raw !== '' ? String(raw) : null);
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  async function renderPersonas(payload) {
     const picker = document.getElementById('applica-persona-picker');
     if (!picker) return;
     if (payload.error) {
@@ -421,9 +454,13 @@
       ? personas.map((p) => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.title || p.name || 'Persona')}</option>`).join('')
       : '<option value="">No personas</option>';
     if (personas.length > 0) {
-      picker.value = String(personas[0].id);
-      updateProfileCard(personas[0]);
-      fetchOpenings(personas[0].id);
+      const savedPersonaId = await loadSelectedPersonaId();
+      const selectedPersona =
+        (savedPersonaId && personas.find((p) => String(p.id) === savedPersonaId)) || personas[0];
+      picker.value = String(selectedPersona.id);
+      saveSelectedPersonaId(selectedPersona.id);
+      updateProfileCard(selectedPersona);
+      fetchOpenings(selectedPersona.id);
     } else {
       updateProfileCard(null);
       const listEl = document.getElementById('openings-list');
@@ -591,6 +628,7 @@
       stopOpeningsPoll();
       lastOpeningsSnapshot = null;
       const id = personaPicker.value;
+      saveSelectedPersonaId(id || null);
       const persona = id ? lastPersonas.find((p) => String(p.id) === id) : null;
       updateProfileCard(persona || null);
       if (id) fetchOpenings(id);
