@@ -12,7 +12,7 @@
   const DRAWER_WIDTH = 500;
   const EXTENSION_CALLBACK_PATH = '/user/log_in/extension_callback';
   const STORAGE_KEYS = { AUTH_TOKEN: 'applica_auth_token', APP_ORIGIN: 'applica_app_origin', REOPEN_DRAWER_TS: 'applica_reopen_drawer_ts' };
-  const REOPEN_DRAWER_TTL_MS = 3000;
+  const REOPEN_DRAWER_TTL_MS = 20000; // 20s so slow-loading job pages still get the drawer
   const DEFAULT_ORIGIN = (typeof window !== 'undefined' && window.APPLICA_DEFAULT_APP_ORIGIN) || 'https://app.applica.com';
 
   // Detect app extension callback: same-origin page with one-time code in URL; exchange for token via API.
@@ -190,8 +190,11 @@
       }
     }
     if (event.data?.type === 'applica-navigate-to' && event.data.url) {
-      chrome.storage.local.set({ [STORAGE_KEYS.REOPEN_DRAWER_TS]: Date.now() }, () => {
-        window.location.href = event.data.url;
+      // Ask background to set reopen timestamp (content context can be invalidated on navigate)
+      const url = event.data.url;
+      chrome.runtime.sendMessage({ type: 'applica-will-navigate', url }, (response) => {
+        if (chrome.runtime.lastError) return;
+        window.location.href = url;
       });
     }
     if (event.data?.type === 'applica-fill-form-with-data' && event.data.form_data) {
