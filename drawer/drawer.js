@@ -19,7 +19,9 @@
   const closeDrawerBtn = document.getElementById('close-drawer');
   const apiErrorBanner = document.getElementById('api-error-banner');
 
+  const API_FEEDBACK_DISMISS_MS = 4000;
   let apiErrorBannerTimeout = null;
+  let analyzeStatusClearTimeout = null;
 
   function showApiErrorBanner() {
     if (!apiErrorBanner) return;
@@ -28,7 +30,7 @@
     apiErrorBannerTimeout = setTimeout(() => {
       apiErrorBanner.hidden = true;
       apiErrorBannerTimeout = null;
-    }, 5000);
+    }, API_FEEDBACK_DISMISS_MS);
   }
 
   function showSection(section) {
@@ -178,10 +180,14 @@
     // In Progress row = only the placeholder (no title/company yet). Once it has title+company it belongs in Queued list only.
     const placeholderOnly = currentAnalyzingOpening && !hasTitleAndCompany(currentAnalyzingOpening);
     const queuedItems = processing.filter((p) => hasTitleAndCompany(p));
-    const queueRows = (placeholderOnly ? [currentAnalyzingOpening] : []).concat(queuedItems);
+    const sortedQueued = sortWithCurrentPageFirst(queuedItems, openingMatchesCurrentPage);
+    const queueRows = (placeholderOnly ? [currentAnalyzingOpening] : []).concat(sortedQueued);
 
     if (queueRows.length > 0) {
       queueEl.innerHTML = queueRows.map((o, i) => queueItemHtml(o, placeholderOnly && i === 0)).join('');
+      if (getDrawerLayoutMode() === DrawerLayoutMode.MAIN) {
+        scrollHighlightedWorklistItemIntoView(queueEl);
+      }
     } else {
       queueEl.innerHTML = '';
     }
@@ -200,16 +206,13 @@
     syncAnalyzeJobButtonState();
 
     if (scored.length > 0) {
-      const sortedScored = [...scored].sort((a, b) => {
-        const aCurrent = currentPageUrl != null && a.url != null && normalizeUrlForCompare(a.url) === normalizeUrlForCompare(currentPageUrl);
-        const bCurrent = currentPageUrl != null && b.url != null && normalizeUrlForCompare(b.url) === normalizeUrlForCompare(currentPageUrl);
-        if (aCurrent && !bCurrent) return -1;
-        if (!aCurrent && bCurrent) return 1;
-        const scoreA = Number(a.current_match_score) || 0;
-        const scoreB = Number(b.current_match_score) || 0;
-        return scoreB - scoreA;
+      const sortedScored = sortWithCurrentPageFirst(scored, openingMatchesCurrentPage, (a, b) => {
+        return (Number(b.current_match_score) || 0) - (Number(a.current_match_score) || 0);
       });
       listEl.innerHTML = sortedScored.map(openingRowHtml).join('');
+      if (getDrawerLayoutMode() === DrawerLayoutMode.MAIN) {
+        scrollHighlightedWorklistItemIntoView(listEl);
+      }
     } else {
       listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
     }
@@ -495,14 +498,15 @@
       syncAnalyzeJobButtonState();
       return;
     }
-    const sortedApps = [...apps].sort((a, b) => {
-      const aCurrent = applicationMatchesCurrentPage(a);
-      const bCurrent = applicationMatchesCurrentPage(b);
-      if (aCurrent && !bCurrent) return -1;
-      if (!aCurrent && bCurrent) return 1;
-      return 0;
+    const sortedApps = sortWithCurrentPageFirst(apps, applicationMatchesCurrentPage, (a, b) => {
+      const aT = a?.applied_at ? new Date(a.applied_at).getTime() : 0;
+      const bT = b?.applied_at ? new Date(b.applied_at).getTime() : 0;
+      return bT - aT;
     });
     listEl.innerHTML = sortedApps.slice(0, 12).map(applicationRowHtml).join('');
+    if (getDrawerLayoutMode() === DrawerLayoutMode.MAIN) {
+      scrollHighlightedWorklistItemIntoView(listEl);
+    }
     applyDrawerLayout();
     if (
       applicationsViewMemory.view === 'detail' &&
@@ -703,6 +707,14 @@
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
   }
 
+  function openingMatchesCurrentPage(opening) {
+    return (
+      currentPageUrl != null &&
+      opening?.url != null &&
+      normalizeUrlForCompare(opening.url) === normalizeUrlForCompare(currentPageUrl)
+    );
+  }
+
   function applicationMatchesCurrentPage(app) {
     return (
       currentPageUrl != null &&
@@ -711,14 +723,29 @@
     );
   }
 
+  function sortWithCurrentPageFirst(items, matchesFn, compareOtherwise) {
+    return [...items].sort((a, b) => {
+      const aCurrent = matchesFn(a);
+      const bCurrent = matchesFn(b);
+      if (aCurrent && !bCurrent) return -1;
+      if (!aCurrent && bCurrent) return 1;
+      return compareOtherwise ? compareOtherwise(a, b) : 0;
+    });
+  }
+
+  function scrollHighlightedWorklistItemIntoView(listEl) {
+    if (!listEl) return;
+    requestAnimationFrame(() => {
+      const match = listEl.querySelector(
+        '.drawer-opening-item-current, .drawer-queue-item-current'
+      );
+      if (match) match.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
+
   function pageAlreadyTrackedAsOpening() {
     const openings = lastOpeningsPayload?.data?.openings || [];
-    return (
-      currentPageUrl != null &&
-      openings.some(
-        (o) => o?.url != null && normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl)
-      )
-    );
+    return openings.some((o) => openingMatchesCurrentPage(o));
   }
 
   function pageAlreadyTrackedAsApplication() {
@@ -904,6 +931,7 @@
     const urlDisplay = o.url ? escapeHtml(o.url) : '';
     const badgeText = inProgress ? 'In Progress' : 'Queued';
     const modifier = inProgress ? 'drawer-queue-item--in-progress' : 'drawer-queue-item--queued';
+    const currentClass = openingMatchesCurrentPage(o) ? ' drawer-queue-item-current' : '';
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
     const urlRow = urlDisplay
       ? '<p class="drawer-queue-item-url">' + urlDisplay + '</p>'
@@ -911,6 +939,7 @@
     return (
       '<div class="drawer-queue-item ' +
       modifier +
+      currentClass +
       '"' +
       dataUrl +
       '><div class="drawer-queue-item-main"><div class="drawer-queue-item-dot"></div><div class="drawer-queue-item-text"><p class="drawer-queue-item-title">' +
@@ -937,10 +966,7 @@
       scoreNum != null
         ? '<span class="drawer-worklist-match-badge" style="' + scoreBadgeStyle(scoreNum) + '">' + scoreNum + '</span>'
         : '—';
-    const isCurrentPage =
-      currentPageUrl != null &&
-      o.url != null &&
-      normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl);
+    const isCurrentPage = openingMatchesCurrentPage(o);
     const rowClass =
       'drawer-worklist-item' + (isCurrentPage ? ' drawer-opening-item-current' : '');
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
@@ -1315,9 +1341,21 @@
   function setAnalyzeStatus(kind, message) {
     const el = document.getElementById('analyze-status');
     if (!el) return;
+    if (analyzeStatusClearTimeout) {
+      clearTimeout(analyzeStatusClearTimeout);
+      analyzeStatusClearTimeout = null;
+    }
     el.textContent = message || '';
     el.hidden = !message;
     el.className = 'drawer-hint drawer-global-status' + (kind === 'error' ? ' drawer-status-error' : '');
+    if (kind === 'error' && message) {
+      analyzeStatusClearTimeout = setTimeout(() => {
+        analyzeStatusClearTimeout = null;
+        el.textContent = '';
+        el.hidden = true;
+        el.className = 'drawer-hint drawer-global-status';
+      }, API_FEEDBACK_DISMISS_MS);
+    }
   }
 
   function setApplicationDetailSaveStatus(kind, message) {
@@ -1544,16 +1582,11 @@
       if (mainScore != null && mainScore > 0) {
         scoreWrap.hidden = false;
         const scoreValueEl = document.getElementById('opening-detail-score-value');
-        const scoreBarEl = document.getElementById('opening-detail-score-bar');
         const scoreLabelEl = document.getElementById('opening-detail-score-label');
         const color = scoreColor(mainScore);
         if (scoreValueEl) {
           scoreValueEl.textContent = mainScore;
           scoreValueEl.style.color = color;
-        }
-        if (scoreBarEl) {
-          scoreBarEl.style.width = Math.min(100, Math.max(0, mainScore)) + '%';
-          scoreBarEl.style.backgroundColor = color;
         }
         applyScoreSentimentBadge(scoreLabelEl, mainScore);
         const analysis = opening.resume_analysis || {};

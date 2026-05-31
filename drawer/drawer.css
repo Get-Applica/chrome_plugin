@@ -42,7 +42,7 @@ body {
 }
 
 .drawer-section-top {
-  padding: 10px 12px 8px;
+  padding: 12px 16px 16px;
 }
 
 .drawer-heading {
@@ -57,11 +57,6 @@ body {
   font-size: 0.8125rem;
   color: rgba(51, 51, 51, 0.7);
   line-height: 1.4;
-}
-
-#openings-section-content,
-#applications-section-content {
-  padding-top: 0;
 }
 
 #applications-section-content {
@@ -80,7 +75,7 @@ body {
 .drawer-top-cluster {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 10px;
 }
 
@@ -101,10 +96,10 @@ body {
 }
 
 .drawer-profile-card-inner {
-  padding: 0.5rem 0.625rem 0.5rem;
+  padding: 0.75rem 0.875rem;
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: 0.5rem;
 }
 
 .drawer-profile-row {
@@ -298,22 +293,65 @@ body {
   color: #70C494;
 }
 
-/* Worklist card - matches mockup (rounded-xl, white/95, border, shadow) */
-.drawer-worklist-card {
-  border-radius: 0.75rem;
-  background: #fff;
-  border: 1px solid rgba(175, 223, 223, 0.2);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+/* List sections — flat layout; tinted headers on openings + applications */
+.drawer-worklist-card,
+.drawer-queue-card {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0 0 0.5rem;
 }
 
-.drawer-worklist-card-header {
-  padding: 1.5rem 1.5rem 1rem 1.5rem;
+#score-queue-section-content,
+#openings-section-content,
+#applications-section-content {
+  border-top: 1px solid rgba(175, 223, 223, 0.35);
+  padding-top: 1rem;
+  padding-bottom: 0.5rem;
+}
+
+#score-queue-section-content {
+  margin-top: 0.375rem;
+}
+
+#applications-section-content {
+  margin-top: 0.375rem;
+}
+
+/* Default list headers (e.g. processing queue) */
+.drawer-worklist-card-header,
+.drawer-queue-card-header {
+  padding: 0.125rem 0 0.5rem;
+  margin: 0 0 0.375rem;
+  border-bottom: 1px solid rgba(175, 223, 223, 0.28);
+}
+
+/* Apply Queue + Recent Applications — tinted band, tight gap to cards */
+#openings-section-content .drawer-worklist-card-header,
+#applications-section-content .drawer-worklist-card-header {
+  padding: 0.625rem 0.75rem 0.625rem;
+  margin: 0 0 0.375rem;
+  border-bottom: none;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(175, 223, 223, 0.22);
+  background: linear-gradient(
+    135deg,
+    rgba(112, 196, 148, 0.06) 0%,
+    rgba(175, 223, 223, 0.1) 100%
+  );
+}
+
+#openings-section-content .drawer-worklist-icon,
+#applications-section-content .drawer-worklist-icon {
+  color: rgba(112, 196, 148, 0.7);
 }
 
 .drawer-worklist-header-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .drawer-worklist-subheader-row {
@@ -321,7 +359,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-top: 0.375rem;
+  margin-top: 0.25rem;
+  padding-bottom: 0;
 }
 
 .drawer-worklist-subheader-row .drawer-worklist-subtitle {
@@ -334,7 +373,12 @@ body {
   margin: 0.375rem 0 0;
   font-size: 0.8125rem;
   color: rgba(51, 51, 51, 0.65);
-  line-height: 1.4;
+  line-height: 1.45;
+}
+
+#openings-section-content .drawer-worklist-card-header .drawer-worklist-subtitle,
+#applications-section-content .drawer-worklist-card-header .drawer-worklist-subtitle {
+  margin-top: 0.25rem;
 }
 
 /* Opening detail view (single opening, back to list) */
@@ -527,22 +571,6 @@ body {
   line-height: 1.3;
 }
 
-.drawer-score-bar-track {
-  width: 100%;
-  height: 0.5rem;
-  background: rgba(175, 223, 223, 0.15);
-  border: 1px solid rgba(175, 223, 223, 0.2);
-  border-radius: 9999px;
-  overflow: hidden;
-}
-
-.drawer-score-bar-fill {
-  height: 100%;
-  border-radius: 9999px;
-  background: #70C494;
-  transition: width 0.5s ease, background-color 0.3s ease;
-}
-
 .drawer-score-categories-inline {
   display: flex;
   align-items: center;
@@ -652,25 +680,29 @@ body {
   flex: 1;
 }
 
-.drawer-worklist-icon-wrap {
-  width: 2rem;
-  height: 2rem;
-  background: rgba(175, 223, 223, 0.2);
-  border-radius: 0.5rem;
+.drawer-worklist-icon-wrap,
+.drawer-queue-icon-wrap {
+  width: 1.5rem;
+  height: 1.5rem;
+  background: transparent;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-.drawer-worklist-icon {
-  width: 1rem;
-  height: 1rem;
-  color: #AFDFDF;
+.drawer-worklist-icon,
+.drawer-queue-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: rgba(51, 51, 51, 0.55);
 }
 
-.drawer-worklist-title {
+.drawer-worklist-title,
+.drawer-queue-title {
   letter-spacing: -0.025em;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 700;
   color: #333333;
 }
@@ -679,12 +711,14 @@ body {
   flex-shrink: 0;
 }
 
-.drawer-worklist-card-body {
-  padding: 0 1.5rem 1.5rem;
+.drawer-worklist-card-body,
+.drawer-queue-card-body {
+  padding: 0;
+  margin: 0;
 }
 
 .drawer-openings-hint {
-  margin-bottom: 8px;
+  margin: 0 0 0.5rem;
 }
 
 .drawer-bulk-delete-toolbar {
@@ -775,11 +809,11 @@ body {
 .drawer-worklist-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.50rem;
 }
 
 .drawer-worklist-item {
-  padding: 0.75rem;
+  padding: 0.50rem;
   border: 1px solid rgba(175, 223, 223, 0.2);
   border-radius: 0.75rem;
   background: #fff;
@@ -825,7 +859,8 @@ body {
 .drawer-worklist-item-position {
   font-size: 0.75rem;
   color: rgba(51, 51, 51, 0.6);
-  margin-top: 0.125rem;
+  margin-top: 0.25rem;
+  line-height: 1.45;
 }
 
 .drawer-worklist-item-score-wrap {
@@ -1048,67 +1083,23 @@ a.drawer-worklist-item-resume-name:hover {
   color: #333333;
 }
 
-/* Processing queue card - matches mockup (blue accent) */
-#score-queue-section-content {
-  padding-top: 24px;
-}
-
-.drawer-queue-card {
-  border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(175, 223, 223, 0.3);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-}
-
-.drawer-queue-card-header {
-  padding: 1.5rem;
-}
-
 .drawer-queue-header-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-.drawer-queue-icon-wrap {
-  width: 2rem;
-  height: 2rem;
-  background: rgba(59, 130, 246, 0.2);
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.drawer-queue-icon {
-  width: 1rem;
-  height: 1rem;
-  color: #3b82f6;
-}
-
-.drawer-queue-title {
-  letter-spacing: -0.025em;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #333333;
-}
-
-.drawer-queue-card-body {
-  padding: 0 1.5rem 1.5rem;
+  gap: 8px;
 }
 
 .drawer-queue-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.50rem;
 }
 
 .drawer-queue-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem;
+  padding: 0.50rem;
   border-radius: 0.5rem;
   gap: 12px;
   cursor: pointer;
@@ -1123,6 +1114,11 @@ a.drawer-worklist-item-resume-name:hover {
 .drawer-queue-item--queued {
   background: rgba(248, 250, 252, 0.9);
   border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.drawer-queue-item.drawer-queue-item-current {
+  border-color: rgba(112, 196, 148, 0.5);
+  background: rgba(175, 223, 223, 0.15);
 }
 
 .drawer-queue-item:hover {
@@ -1393,7 +1389,7 @@ a.drawer-worklist-item-resume-name:hover {
 .drawer-applications-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
 .drawer-application-item {
@@ -1467,7 +1463,7 @@ a.drawer-worklist-item-resume-name:hover {
 }
 
 .drawer-global-status {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
 }
 
 .drawer-global-status[hidden] {
