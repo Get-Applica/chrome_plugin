@@ -1,12 +1,13 @@
 {
   "name": "Applica Extension",
   "description": "Applica Extension - right-hand drawer for app integration",
-  "version": "2.3",
+  "version": "3.0",
   "manifest_version": 3,
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "https://app.getapplica.com/*"
@@ -25,6 +26,7 @@
       ],
       "js": [
         "lib/config.js",
+        "lib/constants.js",
         "content/content.js"
       ],
       "css": [
@@ -37,6 +39,8 @@
     {
       "resources": [
         "lib/config.js",
+        "lib/constants.js",
+        "lib/util.js",
         "lib/api.js",
         "drawer/drawer.html",
         "drawer/drawer.css",
