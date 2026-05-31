@@ -11,7 +11,13 @@
 
   const DRAWER_WIDTH = 500;
   const EXTENSION_CALLBACK_PATH = '/user/log_in/extension_callback';
-  const STORAGE_KEYS = { AUTH_TOKEN: 'applica_auth_token', APP_ORIGIN: 'applica_app_origin', REOPEN_DRAWER_TS: 'applica_reopen_drawer_ts' };
+  const STORAGE_KEYS = {
+    AUTH_TOKEN: 'applica_auth_token',
+    APP_ORIGIN: 'applica_app_origin',
+    REOPEN_DRAWER_TS:
+      (typeof window !== 'undefined' && window.ApplicaConstants?.STORAGE?.REOPEN_DRAWER_TS) ||
+      'applica_reopen_drawer_ts'
+  };
   const REOPEN_DRAWER_TTL_MS = 20000; // 20s so slow-loading job pages still get the drawer
   const DEFAULT_ORIGIN = (typeof window !== 'undefined' && window.APPLICA_DEFAULT_APP_ORIGIN) || 'https://app.applica.com';
 
@@ -190,11 +196,18 @@
       }
     }
     if (event.data?.type === 'applica-navigate-to' && event.data.url) {
-      // Ask background to set reopen timestamp (content context can be invalidated on navigate)
+      // Legacy same-tab navigation; prefer applica-open-tab to preserve drawer context.
       const url = event.data.url;
       chrome.runtime.sendMessage({ type: 'applica-will-navigate', url }, (response) => {
         if (chrome.runtime.lastError) return;
         window.location.href = url;
+      });
+    }
+    if (event.data?.type === 'applica-open-tab' && event.data.url) {
+      chrome.runtime.sendMessage({ type: 'applica-open-tab', url: event.data.url }, () => {
+        if (chrome.runtime.lastError) {
+          console.debug('Applica: could not open tab', chrome.runtime.lastError);
+        }
       });
     }
     if (event.data?.type === 'applica-fill-form-with-data' && event.data.form_data) {
@@ -206,7 +219,7 @@
    * Fill matching form fields on the page using form_data from the drawer.
    * The drawer (extension iframe) fetches form_details; we only run in page context to access the DOM.
    */
-  function handleFillFormWithData(drawerWindow, formData) {
+  async function handleFillFormWithData(drawerWindow, formData) {
     const sendResult = (result) => {
       try {
         drawerWindow.postMessage({ type: 'applica-fill-form-result', ...result }, '*');
@@ -216,13 +229,152 @@
     };
     try {
       const enrichedFormData = enrichFormDataWithSplitNames(formData);
-      const filled = fillFormFields(document, enrichedFormData);
+      const roots = getFillRoots(document);
+      for (const root of roots) {
+        try {
+          root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (_) {}
+        break;
+      }
+      let filled = 0;
+      const used = new Set();
+      for (const root of roots) {
+        filled += fillFormFields(root, enrichedFormData, used);
+      }
       const total = Object.keys(enrichedFormData).length;
-      sendResult({ filled, total });
+      let resumeAttached = 0;
+      const resumePath = formData.resume_download_path;
+      const resumeFilename = formData.resume_filename || 'resume.pdf';
+      for (const root of roots) {
+        if (resumePath) {
+          resumeAttached += await fillResumeFileInputs(root, resumePath, resumeFilename);
+        } else if (formData.resume_url) {
+          resumeAttached += await fillResumeFileInputs(root, formData.resume_url, resumeFilename, false);
+        }
+        if (resumeAttached > 0) break;
+      }
+      sendResult({ filled, total, resumeAttached });
     } catch (e) {
       sendResult({ error: e?.message || 'Failed to fill form.' });
     }
   }
+
+  const RESUME_INPUT_MATCHERS = ['resume', 'cv', 'curriculum', 'vitae', 'attachment', 'document'];
+
+  async function fetchResumeResponse(resumePathOrUrl, useAuth) {
+    if (useAuth) {
+      return new Promise((resolve, reject) => {
+        chrome.storage.local.get([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.APP_ORIGIN], async (data) => {
+          const token = data[STORAGE_KEYS.AUTH_TOKEN];
+          const origin = (data[STORAGE_KEYS.APP_ORIGIN] || DEFAULT_ORIGIN).replace(/\/$/, '');
+          if (!token) {
+            reject(new Error('Not logged in — could not download resume.'));
+            return;
+          }
+          const path = resumePathOrUrl.startsWith('/') ? resumePathOrUrl : `/${resumePathOrUrl}`;
+          try {
+            const response = await fetch(`${origin}${path}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/pdf, application/json, */*'
+              }
+            });
+            resolve(response);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+    }
+    return fetch(resumePathOrUrl);
+  }
+
+  async function fillResumeFileInputs(root, resumePathOrUrl, resumeFilename, useAuth = true) {
+    if (!resumePathOrUrl) return 0;
+    const response = await fetchResumeResponse(resumePathOrUrl, useAuth);
+    if (!response.ok) {
+      throw new Error('Could not download resume for upload.');
+    }
+    const blob = await response.blob();
+    const file = new File(
+      [blob],
+      resumeFilename || 'resume.pdf',
+      { type: blob.type || 'application/pdf' }
+    );
+    let attached = 0;
+    const resumeSelectors = [
+      'input#resume[type="file"]',
+      'input[id="resume"][type="file"]',
+      'input[type="file"][name*="resume" i]',
+      'input[type="file"][id*="resume" i]',
+      'input[type="file"][name*="cv" i]',
+      'input[type="file"][id*="cv" i]'
+    ];
+    const seen = new Set();
+    const fileInputs = [];
+    for (const selector of resumeSelectors) {
+      root.querySelectorAll(selector).forEach((input) => {
+        if (!seen.has(input)) {
+          seen.add(input);
+          fileInputs.push(input);
+        }
+      });
+    }
+    root.querySelectorAll('input[type="file"]').forEach((input) => {
+      if (!seen.has(input)) {
+        seen.add(input);
+        fileInputs.push(input);
+      }
+    });
+    if (fileInputs.length === 0) return 0;
+
+    for (const input of fileInputs) {
+      if (input.disabled) continue;
+      const combined = normalizeForMatch(
+        (input.getAttribute('name') || '') +
+          (input.getAttribute('id') || '') +
+          (input.getAttribute('data-ui') || '') +
+          (input.getAttribute('accept') || '') +
+          getLabelTextForField(root, input)
+      );
+      const isResumeField =
+        input.id === 'resume' ||
+        RESUME_INPUT_MATCHERS.some((m) => combined.includes(normalizeForMatch(m)));
+      if (!isResumeField && fileInputs.length > 1) continue;
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        attached++;
+      } catch (_) {}
+    }
+    return attached;
+  }
+
+  /** Preferred fill order — specific fields before generic ones (e.g. first/last before full_name). */
+  const FILL_FIELD_ORDER = [
+    'first_name',
+    'last_name',
+    'email',
+    'phone',
+    'linkedin_url',
+    'address',
+    'city',
+    'state',
+    'zip',
+    'full_name',
+    'preferred_salary',
+    'gender',
+    'race',
+    'is_willing_to_relocate',
+    'willing_to_travel',
+    'is_disabled',
+    'disabilities',
+    'is_veteran',
+    'requires_sponsorship'
+  ];
 
   /** Map our form_data keys to possible input name/id/placeholder/aria-label values (lowercase). */
   const FORM_FIELD_MATCHERS = {
@@ -276,6 +428,168 @@
     return s.toLowerCase().replace(/[\s_-]/g, '');
   }
 
+  function orderedFormDataKeys(formData) {
+    const keys = Object.keys(formData);
+    const ordered = FILL_FIELD_ORDER.filter((k) => keys.includes(k));
+    const rest = keys.filter((k) => !FILL_FIELD_ORDER.includes(k));
+    return ordered.concat(rest);
+  }
+
+  /** Bare "name" must not match firstname/lastname; bare "first"/"last" need tighter checks. */
+  function isFirstOrLastNameField(name, id) {
+    return /^(first(name)?|fname|givenname)$/.test(name) ||
+      /^(last(name)?|lname|surname|familyname)$/.test(name) ||
+      /^(first(name)?|fname|givenname)$/.test(id) ||
+      /^(last(name)?|lname|surname|familyname)$/.test(id);
+  }
+
+  function fieldMatchesKey(key, el, root, normalizedMatchers) {
+    const name = normalizeForMatch(el.getAttribute('name'));
+    const id = normalizeForMatch(el.getAttribute('id') || '');
+    const dataUi = normalizeForMatch(el.getAttribute('data-ui') || '');
+    const placeholder = normalizeForMatch(el.getAttribute('placeholder') || '');
+    const ariaLabel = normalizeForMatch(el.getAttribute('aria-label') || '');
+    const labelText = normalizeForMatch(getLabelTextForField(root, el));
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    const nameId = name + id + dataUi;
+
+    if (key === 'email' && type === 'email') return true;
+
+    if (key === 'first_name' && (dataUi === 'firstname' || name === 'firstname' || id === 'firstname')) return true;
+    if (key === 'last_name' && (dataUi === 'lastname' || name === 'lastname' || id === 'lastname')) return true;
+
+    for (const m of normalizedMatchers) {
+      if (key === 'full_name' && m === 'name') {
+        if (isFirstOrLastNameField(name, id)) continue;
+        if (nameId === 'name' || nameId === 'fullname' || labelText.includes('fullname')) return true;
+        continue;
+      }
+      if (key === 'first_name' && m === 'first') {
+        if (name.includes('first') || id.includes('first') || dataUi.includes('first') || labelText.includes('firstname')) {
+          return true;
+        }
+        continue;
+      }
+      if (key === 'last_name' && m === 'last') {
+        if (name.includes('last') || id.includes('last') || dataUi.includes('last') || labelText.includes('lastname')) {
+          return true;
+        }
+        continue;
+      }
+      if (name === m || id === m || dataUi === m) return true;
+      const combined = nameId + placeholder + ariaLabel + labelText;
+      if (combined.includes(m)) return true;
+    }
+    return false;
+  }
+
+  function formatPhoneForField(phone, el) {
+    if (phone == null) return '';
+    const str = String(phone).trim();
+    if (!str) return '';
+    const itiRoot = el.closest('.iti');
+    if (itiRoot && itiRoot.classList.contains('iti--separate-dial-code')) {
+      const digits = str.replace(/\D/g, '');
+      if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+      if (digits.length === 10) return digits;
+      return digits;
+    }
+    return str;
+  }
+
+  function getRadioOptionLabel(root, radio) {
+    const parts = [];
+    const labelledBy = radio.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      labelledBy.split(/\s+/).forEach((refId) => {
+        const ref = root.querySelector('#' + CSS.escape(refId.trim()));
+        if (ref?.textContent) parts.push(ref.textContent.trim());
+      });
+    }
+    let parent = radio.parentElement;
+    if (parent?.tagName === 'LABEL' && parent.textContent) parts.push(parent.textContent.trim());
+    return parts.join(' ');
+  }
+
+  function isYesRadioOption(radio, root) {
+    const val = normalizeForMatch(radio.value || '');
+    const label = normalizeForMatch(getRadioOptionLabel(root, radio));
+    const yesVals = ['yes', 'true', '1', 'y'];
+    return yesVals.some((v) => val === v || label === v || label.includes(v));
+  }
+
+  function isNoRadioOption(radio, root) {
+    const val = normalizeForMatch(radio.value || '');
+    const label = normalizeForMatch(getRadioOptionLabel(root, radio));
+    const noVals = ['no', 'false', '0', 'n'];
+    return noVals.some((v) => val === v || label === v || label.includes(v));
+  }
+
+  /** "Authorized to work without sponsorship?" — YES means user does NOT require sponsorship. */
+  function isInvertedSponsorshipQuestion(questionText) {
+    const q = normalizeForMatch(questionText);
+    return q.includes('sponsorship') &&
+      (q.includes('without') || q.includes('authorized') || q.includes('legally'));
+  }
+
+  function selectRadio(radio) {
+    radio.checked = true;
+    radio.dispatchEvent(new Event('input', { bubbles: true }));
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+    radio.click();
+  }
+
+  function fillBooleanRadioGroups(root, formData) {
+    let filledCount = 0;
+    const fieldsets = root.querySelectorAll('fieldset[role="radiogroup"], fieldset');
+    for (const key of BOOLEAN_SELECT_KEYS) {
+      const value = formData[key];
+      if (typeof value !== 'boolean') continue;
+      const matchers = (FORM_FIELD_MATCHERS[key] || []).map(normalizeForMatch);
+      if (matchers.length === 0) continue;
+
+      for (const fieldset of fieldsets) {
+        const questionText = getGroupQuestionText(root, fieldset);
+        const normalizedQuestion = normalizeForMatch(questionText);
+        if (!matchers.some((m) => normalizedQuestion.includes(m))) continue;
+
+        const radios = Array.from(fieldset.querySelectorAll('input[type="radio"]'));
+        if (radios.length === 0) continue;
+
+        let wantYes = value;
+        if (key === 'requires_sponsorship' && isInvertedSponsorshipQuestion(questionText)) {
+          wantYes = !value;
+        }
+
+        const target = radios.find((r) => (wantYes ? isYesRadioOption(r, root) : isNoRadioOption(r, root)));
+        if (target && !target.checked) {
+          selectRadio(target);
+          filledCount++;
+        } else if (target?.checked) {
+          filledCount++;
+        }
+        break;
+      }
+    }
+    return filledCount;
+  }
+
+  function getGroupQuestionText(root, fieldset) {
+    const parts = [];
+    const labelledBy = fieldset.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      labelledBy.split(/\s+/).forEach((refId) => {
+        const ref = root.querySelector('#' + CSS.escape(refId.trim()));
+        if (ref?.textContent) parts.push(ref.textContent.trim());
+      });
+    }
+    if (parts.length === 0) {
+      const prev = fieldset.previousElementSibling;
+      if (prev?.textContent) parts.push(prev.textContent.trim());
+    }
+    return parts.join(' ');
+  }
+
   /** Keys that are booleans in form_data; their dropdowns often use Yes/No or similar. */
   const BOOLEAN_SELECT_KEYS = ['is_disabled', 'is_veteran', 'is_willing_to_relocate', 'willing_to_travel', 'requires_sponsorship'];
 
@@ -323,6 +637,13 @@
   function getLabelTextForField(root, el) {
     const parts = [];
     const id = el.getAttribute('id');
+    const labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      labelledBy.split(/\s+/).forEach((refId) => {
+        const ref = root.querySelector('#' + CSS.escape(refId.trim()));
+        if (ref?.textContent) parts.push(ref.textContent.trim());
+      });
+    }
     if (id) {
       const labelByFor = root.querySelector('label[for="' + CSS.escape(id) + '"]');
       if (labelByFor && labelByFor.textContent) parts.push(labelByFor.textContent.trim());
@@ -345,49 +666,239 @@
     return parts.join(' ');
   }
 
-  function fillFormFields(root, formData) {
-    const inputs = Array.from(root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea'));
-    const used = new Set();
+  /** Standard HTML autocomplete → form_data keys (most reliable on modern ATS forms). */
+  const AUTOCOMPLETE_FIELD_MAP = {
+    'given-name': 'first_name',
+    'family-name': 'last_name',
+    email: 'email',
+    tel: 'phone',
+    'tel-national': 'phone',
+    'tel-local': 'phone',
+    'street-address': 'address',
+    'address-line1': 'address',
+    'address-level2': 'city',
+    'address-level1': 'state',
+    'postal-code': 'zip'
+  };
+
+  /** Common ATS form root selectors (Greenhouse, Lever-style, embedded boards). */
+  const APPLICATION_FORM_SELECTORS = [
+    '[data-ui="application-form"]',
+    'form#application-form',
+    'form.application--form',
+    'form#application_form',
+    '#application_form',
+    '.application--container form',
+    '.application-form form',
+    'form[action*="greenhouse"]',
+    'form[action*="lever.co"]',
+    'form[action*="workable"]',
+    'form[action*="ashbyhq"]',
+    'form[action*="apply"]'
+  ];
+
+  function queryApplicationFormRoot(doc) {
+    for (const selector of APPLICATION_FORM_SELECTORS) {
+      const el = doc.querySelector(selector);
+      if (el) return el;
+    }
+    for (const iframe of doc.querySelectorAll('iframe')) {
+      try {
+        const idoc = iframe.contentDocument;
+        if (!idoc) continue;
+        for (const selector of APPLICATION_FORM_SELECTORS) {
+          const el = idoc.querySelector(selector);
+          if (el) return el;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /** Prefer the application modal/form over stray inputs elsewhere on the page. */
+  function getFillRoots(doc) {
+    const appForm = queryApplicationFormRoot(doc);
+    if (appForm) return [appForm];
+
+    const dialog = doc.querySelector('[role="dialog"]:not([aria-hidden="true"]), dialog[open]');
+    if (dialog) return [dialog];
+
+    return [doc.body || doc];
+  }
+
+  function isSkippableInput(el) {
+    if (!el) return true;
+    const role = el.getAttribute('role');
+    if (role === 'combobox' || role === 'searchbox') return true;
+    if (el.classList.contains('select__input')) return true;
+    if (el.classList.contains('iti__search-input')) return true;
+    const id = (el.id || '').toLowerCase();
+    if (id === 'country' && el.closest('.phone-input, .select, .select-shell')) return true;
+    return false;
+  }
+
+  function isFieldVisible(el) {
+    if (!el) return false;
+    if (el.type === 'file') {
+      if (el.disabled) return false;
+      if (el.closest('[hidden]')) return false;
+      return true;
+    }
+    if (el.type === 'hidden') return false;
+    if (el.getAttribute('aria-hidden') === 'true') return false;
+    if (el.classList.contains('visually-hidden') && el.type !== 'file') return false;
+    if (Number(el.tabIndex) === -1 && el.closest('[style*="absolute"][style*="1px"]')) return false;
+    try {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0 && el.type !== 'file') return false;
+    } catch (_) {}
+    return true;
+  }
+
+  function setInputValue(el, value) {
+    const proto =
+      el instanceof HTMLTextAreaElement
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (setter) {
+      setter.call(el, value);
+    } else {
+      el.value = value;
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function findInputsForKey(inputs, key, root, normalizedMatchers, used) {
+    const eligible = inputs.filter(
+      (el) =>
+        !used.has(el) &&
+        !isSkippableInput(el) &&
+        el.type !== 'radio' &&
+        el.type !== 'checkbox' &&
+        fieldMatchesKey(key, el, root, normalizedMatchers)
+    );
+    return eligible.find(isFieldVisible) || eligible[0] || null;
+  }
+
+  function fillKnownFieldIds(root, formData, used) {
     let filledCount = 0;
-    for (const key of Object.keys(formData)) {
+    const idKeys = ['first_name', 'last_name', 'email', 'phone'];
+    for (const key of idKeys) {
       const value = formData[key];
-      if (value == null) continue;
-      const strVal = typeof value === 'boolean' ? (value ? 'yes' : '') : String(value).trim();
-      const matchers = FORM_FIELD_MATCHERS[key];
-      if (!matchers || matchers.length === 0) continue;
-      const normalizedMatchers = matchers.map(normalizeForMatch);
-      for (const el of inputs) {
-        if (used.has(el)) continue;
-        const name = normalizeForMatch(el.getAttribute('name'));
-        const id = normalizeForMatch(el.getAttribute('id') || '');
-        const placeholder = normalizeForMatch(el.getAttribute('placeholder') || '');
-        const ariaLabel = normalizeForMatch(el.getAttribute('aria-label') || '');
-        const labelText = normalizeForMatch(getLabelTextForField(root, el));
-        const type = (el.getAttribute('type') || '').toLowerCase();
-        const combined = name + id + placeholder + ariaLabel + labelText + (type === 'email' && key === 'email' ? 'email' : '');
-        const matches = normalizedMatchers.some((m) => combined.includes(m) || (key === 'email' && type === 'email'));
-        if (!matches) continue;
+      if (value == null || String(value).trim() === '') continue;
+      const el = root.querySelector('#' + CSS.escape(key));
+      if (!el || used.has(el) || isSkippableInput(el)) continue;
+      if (el.tagName === 'SELECT') continue;
+      try {
+        const fillVal = key === 'phone' ? formatPhoneForField(String(value).trim(), el) : String(value).trim();
+        setInputValue(el, fillVal);
+        used.add(el);
+        filledCount++;
+      } catch (_) {}
+    }
+    return filledCount;
+  }
+
+  function fillAutocompleteFields(root, formData, used) {
+    let filledCount = 0;
+    for (const [autocomplete, key] of Object.entries(AUTOCOMPLETE_FIELD_MAP)) {
+      const value = formData[key];
+      if (value == null || String(value).trim() === '') continue;
+      const els = root.querySelectorAll(
+        'input[autocomplete="' + autocomplete + '"], textarea[autocomplete="' + autocomplete + '"]'
+      );
+      for (const el of els) {
+        if (used.has(el) || isSkippableInput(el) || !isFieldVisible(el)) continue;
         try {
-          if (el.tagName === 'SELECT') {
-            const opt = findMatchingOption(el, key, value, strVal);
-            if (opt) {
-              opt.selected = true;
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              filledCount++;
-            }
-          } else if (el.type === 'checkbox' || el.type === 'radio') {
-            el.checked = !!value;
-            filledCount++;
-          } else {
-            el.value = strVal;
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            filledCount++;
-          }
+          const fillVal =
+            key === 'phone' ? formatPhoneForField(String(value).trim(), el) : String(value).trim();
+          setInputValue(el, fillVal);
           used.add(el);
+          filledCount++;
           break;
         } catch (_) {}
       }
     }
+    return filledCount;
+  }
+
+  function fillLinkedInQuestionFields(root, formData, used) {
+    const url = formData.linkedin_url;
+    if (url == null || String(url).trim() === '') return 0;
+    let filledCount = 0;
+    const inputs = root.querySelectorAll('input:not([type="hidden"]), textarea');
+    for (const el of inputs) {
+      if (used.has(el) || isSkippableInput(el)) continue;
+      const label = normalizeForMatch(getLabelTextForField(root, el));
+      const aria = normalizeForMatch(el.getAttribute('aria-label') || '');
+      if (!label.includes('linkedin') && !aria.includes('linkedin')) continue;
+      try {
+        setInputValue(el, String(url).trim());
+        used.add(el);
+        filledCount++;
+      } catch (_) {}
+    }
+    return filledCount;
+  }
+
+  function fillFormFields(root, formData, used) {
+    used = used || new Set();
+    let filledCount = 0;
+    filledCount += fillKnownFieldIds(root, formData, used);
+    filledCount += fillAutocompleteFields(root, formData, used);
+    filledCount += fillLinkedInQuestionFields(root, formData, used);
+
+    const inputs = Array.from(root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea'));
+    for (const key of orderedFormDataKeys(formData)) {
+      const value = formData[key];
+      if (value == null) continue;
+      const matchers = FORM_FIELD_MATCHERS[key];
+      if (!matchers || matchers.length === 0) continue;
+      const normalizedMatchers = matchers.map(normalizeForMatch);
+
+      if (typeof value === 'boolean') {
+        for (const el of inputs) {
+          if (used.has(el) || el.tagName !== 'SELECT') continue;
+          if (!fieldMatchesKey(key, el, root, normalizedMatchers)) continue;
+          try {
+            const opt = findMatchingOption(el, key, value, value ? 'yes' : 'no');
+            if (opt) {
+              opt.selected = true;
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              filledCount++;
+              used.add(el);
+            }
+          } catch (_) {}
+        }
+        continue;
+      }
+
+      const strVal = String(value).trim();
+      if (!strVal) continue;
+      const el = findInputsForKey(inputs, key, root, normalizedMatchers, used);
+      if (!el) continue;
+      try {
+        if (el.tagName === 'SELECT') {
+          const opt = findMatchingOption(el, key, value, strVal);
+          if (opt) {
+            opt.selected = true;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            filledCount++;
+            used.add(el);
+          }
+        } else {
+          const fillVal = key === 'phone' ? formatPhoneForField(strVal, el) : strVal;
+          setInputValue(el, fillVal);
+          filledCount++;
+          used.add(el);
+        }
+      } catch (_) {}
+    }
+    filledCount += fillBooleanRadioGroups(root, formData);
     return filledCount;
   }
 

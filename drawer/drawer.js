@@ -1,11 +1,15 @@
 /**
  * Applica Extension - Drawer UI logic
- * Sign-in opens the app in a new tab. After login the app redirects to auth.html
- * with the token; that page stores it and closes. Drawer shows signed-in state when
- * a token is stored.
+ *
+ * Navigation chrome is driven by applyDrawerLayout() — see chrome_plugin/ARCHITECTURE.md.
+ * Sign-in opens the app in a new tab; auth.html stores the token. Shared helpers live in
+ * lib/api.js, lib/constants.js, and lib/util.js.
  */
 
 (function () {
+  const { escapeHtml, setVisible } = window.ApplicaUtil;
+  const { APPLICATION_STATUS_OPTIONS, STORAGE } = window.ApplicaConstants;
+
   const loginSection = document.getElementById('login-section');
   const scoreQueueSection = document.getElementById('score-queue-section');
   const signedInSection = document.getElementById('signed-in-section');
@@ -37,13 +41,7 @@
     const picker = document.getElementById('applica-persona-picker');
     if (picker) picker.innerHTML = '<option value="">Loading…</option>';
     try {
-      const res = await window.ApplicaAPI.appFetch('/api/personas');
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showApiErrorBanner();
-        await renderPersonas({ loggedIn: false, error: data.message || 'Failed to load' });
-        return;
-      }
+      const data = await window.ApplicaAPI.appFetchJson('/api/personas');
       await renderPersonas({ loggedIn: true, data });
     } catch (err) {
       showApiErrorBanner();
@@ -66,6 +64,41 @@
 
   let lastOpeningsSnapshot = null;
 
+  function openingHasScore(opening) {
+    return opening != null && Number(opening.current_match_score) > 0;
+  }
+
+  function isOpeningScoring(opening) {
+    if (!opening || openingHasScore(opening)) return false;
+    if (pollingWatchOpeningId && String(pollingWatchOpeningId) === String(opening.id)) return true;
+    const fromApi = findOpeningById(opening.id);
+    if (fromApi && !openingHasScore(fromApi)) {
+      const hasTitleAndCompany =
+        fromApi.title != null && String(fromApi.title).trim() !== '' &&
+        fromApi.company != null && String(fromApi.company).trim() !== '';
+      if (hasTitleAndCompany) return true;
+    }
+    if (
+      currentAnalyzingOpening &&
+      opening.url &&
+      normalizeUrlForCompare(currentAnalyzingOpening.url) === normalizeUrlForCompare(opening.url)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function updateOpeningDetailScoringIndicator(opening) {
+    const scoringEl = document.getElementById('opening-detail-scoring');
+    if (!scoringEl) return;
+    scoringEl.hidden = !isOpeningScoring(opening);
+  }
+
+  function findOpeningById(openingId) {
+    const openings = lastOpeningsPayload?.data?.openings || [];
+    return openings.find((o) => o != null && String(o.id) === String(openingId));
+  }
+
   async function fetchOpenings(personaId, options = {}) {
     if (!personaId) return;
     const showLoading = options.silent !== true;
@@ -74,14 +107,9 @@
     if (showLoading && queueEl) queueEl.innerHTML = '<p class="drawer-hint">Loading…</p>';
     if (showLoading && listEl) listEl.innerHTML = '<p class="drawer-hint">Loading…</p>';
     try {
-      const res = await window.ApplicaAPI.appFetch(`/api/openings?persona_id=${encodeURIComponent(personaId)}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showApiErrorBanner();
-        lastOpeningsSnapshot = null;
-        renderOpenings({ loggedIn: true, error: data.message || 'Failed to load' });
-        return;
-      }
+      const data = await window.ApplicaAPI.appFetchJson(
+        `/api/openings?persona_id=${encodeURIComponent(personaId)}`
+      );
       const openings = data?.openings || [];
       const snapshot = openingsSnapshot(openings);
       const unchanged = snapshot === lastOpeningsSnapshot;
@@ -90,6 +118,10 @@
       }
       lastOpeningsSnapshot = snapshot;
       renderOpenings({ loggedIn: true, data });
+      const watchId = options.watchOpeningId || pollingWatchOpeningId;
+      if (watchId && openingHasScore(findOpeningById(watchId))) {
+        stopOpeningsPoll();
+      }
     } catch (err) {
       showApiErrorBanner();
       lastOpeningsSnapshot = null;
@@ -113,10 +145,11 @@
     if (!payload.loggedIn) {
       queueEl.innerHTML = '';
       listEl.innerHTML = '';
-      if (queueSection) queueSection.hidden = true;
-      if (openingsSection) openingsSection.hidden = true;
+      openingsSectionAvailable = false;
+      applyDrawerLayout();
       return;
     }
+    openingsSectionAvailable = true;
     if (payload.error) {
       const msg = escapeHtml(payload.error);
       listEl.innerHTML = '<div class="drawer-worklist-empty">' + msg + '</div>';
@@ -149,10 +182,8 @@
 
     if (queueRows.length > 0) {
       queueEl.innerHTML = queueRows.map((o, i) => queueItemHtml(o, placeholderOnly && i === 0)).join('');
-      if (queueSection) queueSection.hidden = false;
     } else {
       queueEl.innerHTML = '';
-      if (queueSection) queueSection.hidden = true;
     }
 
     if (badgeEl) badgeEl.innerHTML = usageBadgeHtml(limits);
@@ -162,6 +193,9 @@
         ? '<p class="drawer-hint">You have reached your limit of openings. Upgrade to create more.</p>'
         : '';
     }
+
+    const bulkToolbar = document.getElementById('openings-bulk-delete-toolbar');
+    if (bulkToolbar) bulkToolbar.hidden = openings.length === 0;
 
     const analyzeBtn = document.getElementById('analyze-job-posting-btn');
     if (analyzeBtn) {
@@ -182,12 +216,14 @@
         return scoreB - scoreA;
       });
       listEl.innerHTML = sortedScored.map(openingRowHtml).join('');
-      if (openingsSection) openingsSection.hidden = false;
     } else {
       listEl.innerHTML = '<div class="drawer-worklist-empty">No openings yet.</div>';
-      if (openingsSection) openingsSection.hidden = false;
     }
-    applyDrawerViewState();
+    if (isApplicationDetailActive()) {
+      applyDrawerLayout();
+    } else {
+      applyDrawerViewStateSync();
+    }
   }
 
   function tryShowDetailViewForCurrentPage() {
@@ -199,30 +235,421 @@
     if (opening) showOpeningDetail(opening);
   }
 
-  async function applyDrawerViewState() {
-    const state = await loadDrawerViewState();
+  function applyDrawerViewStateSync() {
+    if (isApplicationDetailActive()) {
+      applyDrawerLayout();
+      return;
+    }
     const openings = lastOpeningsPayload?.data?.openings || [];
-    if (state?.view === 'list') {
+    if (drawerViewMemory.view === 'list') {
       showOpeningsList();
       return;
     }
-    if (state?.view === 'detail' && state.openingId != null) {
-      const opening = openings.find((o) => o != null && String(o.id) === String(state.openingId));
+    if (drawerViewMemory.view === 'detail' && drawerViewMemory.openingId != null) {
+      const opening = openings.find(
+        (o) => o != null && String(o.id) === String(drawerViewMemory.openingId)
+      );
       if (opening) {
         showOpeningDetail(opening);
         return;
       }
-      showOpeningsList();
       saveDrawerViewState('list', null);
-      return;
     }
-    tryShowDetailViewForCurrentPage();
+    showOpeningsList();
   }
 
-  function escapeHtml(s) {
-    const div = document.createElement('div');
-    div.textContent = s;
-    return div.innerHTML;
+  function normalizeApplicationStatus(status) {
+    if (status == null || String(status).trim() === '') return 'applied';
+    const normalized = String(status).trim().toLowerCase();
+    if (APPLICATION_STATUS_OPTIONS.some(([, value]) => value === normalized)) return normalized;
+    return 'applied';
+  }
+
+  function populateStatusSelect(selectEl, selectedStatus) {
+    if (!selectEl) return;
+    const status = normalizeApplicationStatus(selectedStatus);
+    selectEl.innerHTML = APPLICATION_STATUS_OPTIONS.map(
+      ([label, value]) =>
+        '<option value="' +
+        escapeHtml(value) +
+        '">' +
+        escapeHtml(label) +
+        '</option>'
+    ).join('');
+    selectEl.value = status;
+    if (!selectEl.value && APPLICATION_STATUS_OPTIONS.length > 0) {
+      selectEl.value = APPLICATION_STATUS_OPTIONS[0][1];
+    }
+  }
+
+  function initApplicationFormSelects() {
+    populateStatusSelect(document.getElementById('application-detail-status'), 'applied');
+  }
+
+  function statusOptionsHtml(selectedStatus) {
+    const status = normalizeApplicationStatus(selectedStatus);
+    return APPLICATION_STATUS_OPTIONS.map(
+      ([label, value]) =>
+        '<option value="' +
+        escapeHtml(value) +
+        '"' +
+        (value === status ? ' selected' : '') +
+        '>' +
+        escapeHtml(label) +
+        '</option>'
+    ).join('');
+  }
+
+  function formatAppliedDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch (_) {
+      return String(iso).slice(0, 10);
+    }
+  }
+
+  const APPLICATION_DETAIL_PREFIX = 'application-detail';
+
+  function applicationFieldId(name) {
+    return APPLICATION_DETAIL_PREFIX + '-' + name;
+  }
+
+  function readApplicationFields() {
+    return {
+      status: document.getElementById(applicationFieldId('status'))?.value,
+      notes: document.getElementById(applicationFieldId('notes'))?.value || '',
+      contact_name: document.getElementById(applicationFieldId('contact-name'))?.value || '',
+      contact_email: document.getElementById(applicationFieldId('contact-email'))?.value || '',
+      contact_url: document.getElementById(applicationFieldId('contact-url'))?.value || ''
+    };
+  }
+
+  function fillApplicationFields(app) {
+    populateStatusSelect(document.getElementById(applicationFieldId('status')), app?.status || 'applied');
+    const notesEl = document.getElementById(applicationFieldId('notes'));
+    const contactNameEl = document.getElementById(applicationFieldId('contact-name'));
+    const contactEmailEl = document.getElementById(applicationFieldId('contact-email'));
+    const contactUrlEl = document.getElementById(applicationFieldId('contact-url'));
+    if (notesEl) notesEl.value = app?.notes || '';
+    if (contactNameEl) contactNameEl.value = app?.contact_name || '';
+    if (contactEmailEl) contactEmailEl.value = app?.contact_email || '';
+    if (contactUrlEl) contactUrlEl.value = app?.contact_url || '';
+  }
+
+  let applicationsViewMemory = { view: 'list', applicationId: null };
+  let lastApplicationsPayload = null;
+  let selectedApplication = null;
+  let applicationsSectionAvailable = true;
+  let openingsSectionAvailable = true;
+  let drawerViewMemory = { view: 'list', openingId: null };
+  let selectedOpening = null;
+
+  /** Single source of truth for which drawer chrome is visible. */
+  const DrawerLayoutMode = {
+    MAIN: 'main',
+    OPENING_DETAIL: 'opening-detail',
+    APPLICATION_DETAIL: 'application-detail'
+  };
+
+  function getDrawerLayoutMode() {
+    if (
+      applicationsViewMemory.view === 'detail' &&
+      applicationsViewMemory.applicationId != null
+    ) {
+      return DrawerLayoutMode.APPLICATION_DETAIL;
+    }
+    if (drawerViewMemory.view === 'detail' && selectedOpening != null) {
+      return DrawerLayoutMode.OPENING_DETAIL;
+    }
+    return DrawerLayoutMode.MAIN;
+  }
+
+  function isOpeningDetailActive() {
+    return getDrawerLayoutMode() === DrawerLayoutMode.OPENING_DETAIL;
+  }
+
+  function isApplicationDetailActive() {
+    return getDrawerLayoutMode() === DrawerLayoutMode.APPLICATION_DETAIL;
+  }
+
+  function queuePanelHasContent() {
+    const queueEl = document.getElementById('score-queue-list');
+    return !!(queueEl && queueEl.innerHTML.trim());
+  }
+
+  /**
+   * Apply layout from getDrawerLayoutMode(). Call after any navigation or list refresh
+   * that might affect chrome visibility — do not toggle sections ad hoc elsewhere.
+   */
+  function applyDrawerLayout() {
+    const mode = getDrawerLayoutMode();
+    const isMain = mode === DrawerLayoutMode.MAIN;
+    const isOpeningDetail = mode === DrawerLayoutMode.OPENING_DETAIL;
+    const isAppDetail = mode === DrawerLayoutMode.APPLICATION_DETAIL;
+
+    setVisible(document.getElementById('drawer-list-only-block'), isMain);
+    setVisible(
+      document.getElementById('openings-section-content'),
+      openingsSectionAvailable && (isMain || isOpeningDetail)
+    );
+    setVisible(
+      document.getElementById('applications-section-content'),
+      applicationsSectionAvailable && (isMain || isAppDetail)
+    );
+    setVisible(
+      document.getElementById('score-queue-section-content'),
+      isMain && queuePanelHasContent()
+    );
+
+    setVisible(document.getElementById('openings-list-view'), isMain);
+    setVisible(document.getElementById('opening-detail-view'), isOpeningDetail);
+    setVisible(document.getElementById('applications-list-view'), isMain);
+    setVisible(document.getElementById('application-detail-view'), isAppDetail);
+  }
+
+  async function fetchApplications(personaId, options = {}) {
+    if (!personaId) return;
+    const listEl = document.getElementById('applications-list');
+    if (options.silent !== true && listEl) {
+      listEl.innerHTML = '<p class="drawer-hint">Loading…</p>';
+    }
+    try {
+      const data = await window.ApplicaAPI.appFetchJson(
+        `/api/applications?persona_id=${encodeURIComponent(personaId)}`
+      );
+      renderApplications({ loggedIn: true, data });
+    } catch (err) {
+      renderApplications({ loggedIn: true, error: err?.message || 'Failed to load applications' });
+    }
+  }
+
+  function applicationRowHtml(app) {
+    const company = escapeHtml(app.company || '—');
+    const title = escapeHtml(app.title || '');
+    const appliedAt = formatAppliedDate(app.applied_at);
+    const appliedMeta = appliedAt
+      ? '<div class="drawer-worklist-item-applied">Applied ' + escapeHtml(appliedAt) + '</div>'
+      : '';
+    const dataApplicationId =
+      app.id != null ? ' data-application-id="' + escapeHtml(String(app.id)) + '"' : '';
+    const statusSelect =
+      '<select class="drawer-application-row-status drawer-field-select" data-application-id="' +
+      escapeHtml(String(app.id)) +
+      '" aria-label="Application status for ' +
+      escapeHtml(app.company || 'application') +
+      '">' +
+      statusOptionsHtml(normalizeApplicationStatus(app.status)) +
+      '</select>';
+    return (
+      '<div class="drawer-worklist-item drawer-application-item"' +
+      dataApplicationId +
+      '><div class="drawer-worklist-item-top"><div class="drawer-worklist-item-left"><div class="drawer-worklist-item-company">' +
+      company +
+      '</div><div class="drawer-worklist-item-position">' +
+      title +
+      '</div>' +
+      appliedMeta +
+      '</div><div class="drawer-worklist-item-score-wrap drawer-application-item-status-wrap">' +
+      statusSelect +
+      '</div></div></div>'
+    );
+  }
+
+  function renderApplications(payload) {
+    const listEl = document.getElementById('applications-list');
+    const section = document.getElementById('applications-section-content');
+    if (!listEl) return;
+    if (!payload.loggedIn) {
+      listEl.innerHTML = '';
+      applicationsSectionAvailable = false;
+      applyDrawerLayout();
+      return;
+    }
+    applicationsSectionAvailable = true;
+    if (payload.error) {
+      listEl.innerHTML = '<div class="drawer-worklist-empty">' + escapeHtml(payload.error) + '</div>';
+      applyDrawerLayout();
+      return;
+    }
+    lastApplicationsPayload = payload;
+    const apps = payload.data?.applications || [];
+    if (apps.length === 0) {
+      listEl.innerHTML = '<div class="drawer-worklist-empty">No applications yet.</div>';
+      applyDrawerLayout();
+      return;
+    }
+    listEl.innerHTML = apps.slice(0, 12).map(applicationRowHtml).join('');
+    applyDrawerLayout();
+    if (
+      applicationsViewMemory.view === 'detail' &&
+      applicationsViewMemory.applicationId != null
+    ) {
+      const active = apps.find(
+        (a) => a != null && String(a.id) === String(applicationsViewMemory.applicationId)
+      );
+      if (active) showApplicationDetail(active, { skipSaveState: true, skipFormFill: true });
+      else showApplicationsList();
+    }
+  }
+
+  function upsertApplicationInList(application) {
+    if (!application?.id) return;
+    const existing = lastApplicationsPayload?.data?.applications || [];
+    const apps = [...existing];
+    const idx = apps.findIndex((a) => a != null && String(a.id) === String(application.id));
+    if (idx >= 0) apps[idx] = application;
+    else apps.unshift(application);
+    renderApplications({ loggedIn: true, data: { applications: apps } });
+  }
+
+  function patchApplicationInList(applicationId, partial) {
+    const existing = lastApplicationsPayload?.data?.applications || [];
+    const apps = existing.map((a) =>
+      a != null && String(a.id) === String(applicationId) ? { ...a, ...partial } : a
+    );
+    if (lastApplicationsPayload?.data) {
+      lastApplicationsPayload = {
+        ...lastApplicationsPayload,
+        data: { ...lastApplicationsPayload.data, applications: apps }
+      };
+    }
+  }
+
+  async function updateApplication(applicationId, attrs) {
+    const data = await window.ApplicaAPI.appFetchJson(
+      '/api/applications/' + encodeURIComponent(applicationId),
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(attrs)
+      }
+    );
+    if (!data.application) {
+      throw new Error('Invalid response from server');
+    }
+    return data.application;
+  }
+
+  function syncOpeningDetailApplicationActions(opening) {
+    const applyBtn = document.getElementById('opening-detail-remove');
+    const hasApp = !!(opening?.has_application || opening?.linked_application?.id);
+    if (applyBtn) applyBtn.hidden = hasApp;
+  }
+
+  async function renderCustomResumeSection(opening) {
+    const section = document.getElementById('opening-detail-custom-resume');
+    const locked = document.getElementById('opening-detail-custom-resume-locked');
+    const uploadInput = document.getElementById('opening-detail-resume-upload');
+    const uploadBtn = document.getElementById('opening-detail-upload-resume');
+    const upgradeLink = document.getElementById('opening-detail-upgrade-link');
+    if (!section) return;
+    const hasApp = opening?.has_application || opening?.linked_application;
+    if (hasApp || isOpeningScoring(opening)) {
+      section.hidden = true;
+      if (uploadInput) uploadInput.value = '';
+      if (uploadBtn) uploadBtn.hidden = true;
+      return;
+    }
+    const canCustomize = lastOpeningsPayload?.data?.entitlements?.custom_resume_scoring === true;
+    section.hidden = false;
+    if (upgradeLink && window.ApplicaAPI?.appUrl) {
+      try {
+        upgradeLink.href = await window.ApplicaAPI.appUrl('/dashboard/settings#billing');
+      } catch (_) {}
+    }
+    if (canCustomize) {
+      if (locked) locked.hidden = true;
+      if (uploadBtn) uploadBtn.hidden = false;
+      const aside = section.querySelector('.drawer-custom-resume-aside');
+      if (aside) aside.hidden = false;
+    } else {
+      if (locked) locked.hidden = false;
+      if (uploadBtn) uploadBtn.hidden = true;
+      const aside = section.querySelector('.drawer-custom-resume-aside');
+      if (aside) aside.hidden = true;
+    }
+  }
+
+  async function submitCustomResumeUpload(file) {
+    if (!selectedOpening?.id || !file) return;
+    const uploadBtn = document.getElementById('opening-detail-upload-resume');
+    const uploadInput = document.getElementById('opening-detail-resume-upload');
+    setAnalyzeStatus('', 'Uploading resume…');
+    if (uploadBtn) uploadBtn.disabled = true;
+    try {
+      const updatedOpening = await uploadCustomResumeForOpening(selectedOpening, file);
+      selectedOpening = { ...selectedOpening, ...updatedOpening };
+      if (uploadInput) uploadInput.value = '';
+      showOpeningDetail(selectedOpening);
+      const personaId = personaPicker?.value;
+      if (personaId) {
+        startOpeningsPoll(personaId, { openingId: selectedOpening.id });
+        await fetchOpenings(personaId, { silent: true, watchOpeningId: selectedOpening.id });
+      }
+      setAnalyzeStatus('', 'Resume uploaded. Re-scoring…');
+      setTimeout(() => setAnalyzeStatus('', ''), 4000);
+    } catch (err) {
+      showApiErrorBanner();
+      setAnalyzeStatus('error', err?.message || 'Upload failed.');
+    } finally {
+      if (uploadBtn) uploadBtn.disabled = false;
+    }
+  }
+
+  async function uploadCustomResumeForOpening(opening, file) {
+    const formData = new FormData();
+    formData.append('resume', file);
+    const data = await window.ApplicaAPI.appFetchJson(
+      '/api/openings/' + encodeURIComponent(opening.id) + '/resume_upload',
+      { method: 'POST', body: formData }
+    );
+    return data.opening;
+  }
+
+  function showApplicationDetail(app, options = {}) {
+    if (!app) return;
+    selectedApplication = app;
+    if (!options.skipSaveState) {
+      applicationsViewMemory = { view: 'detail', applicationId: app.id ?? null };
+      setApplicationDetailSaveStatus('', '');
+    }
+    applyDrawerLayout();
+    const companyEl = document.getElementById('application-detail-company');
+    const titleEl = document.getElementById('application-detail-title');
+    const appliedEl = document.getElementById('application-detail-applied');
+    const salaryEl = document.getElementById('application-detail-salary');
+    if (companyEl) companyEl.textContent = app.company || '—';
+    if (titleEl) titleEl.textContent = app.title || '';
+    if (appliedEl) {
+      const appliedAt = formatAppliedDate(app.applied_at);
+      appliedEl.textContent = appliedAt ? 'Applied ' + appliedAt : '';
+      appliedEl.hidden = !appliedAt;
+    }
+    if (salaryEl) {
+      if (app.salary) {
+        salaryEl.textContent = 'Salary: ' + app.salary;
+        salaryEl.hidden = false;
+      } else {
+        salaryEl.textContent = '';
+        salaryEl.hidden = true;
+      }
+    }
+    if (!options.skipFormFill) {
+      fillApplicationFields(app);
+    }
+    const openLink = document.getElementById('application-detail-open-link');
+    if (openLink) {
+      openLink.href = app.link || '#';
+      openLink.hidden = !app.link;
+    }
+  }
+
+  function showApplicationsList() {
+    applicationsViewMemory = { view: 'list', applicationId: null };
+    applyDrawerLayout();
   }
 
   function usageBadgeHtml(limits) {
@@ -252,16 +679,114 @@
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
   }
 
-  /** Map API score_tier to app brand color hex */
-  const SCORE_TIER_COLORS = {
-    green: '#70C494',
-    yellow: '#F2D75C',
-    orange: '#F29A4B',
-    red: '#D94A3A',
-    muted: '#333333'
-  };
-  function scoreTierToColor(tier) {
-    return SCORE_TIER_COLORS[String(tier).toLowerCase()] ?? SCORE_TIER_COLORS.muted;
+  /** Score colors and badges — mirrors YouWeb.Helpers.LiveHelpers + ScoreSentiment */
+  function scoreColor(score) {
+    const n = Number(score);
+    if (n !== n) return '#333333';
+    if (n >= 80) return '#70C494';
+    if (n >= 65) return '#EAB308';
+    if (n >= 50) return '#F29A4B';
+    return '#D94A3A';
+  }
+
+  function scoreLabel(score) {
+    const n = Number(score);
+    if (n !== n) return null;
+    if (n >= 90) return 'Excellent';
+    if (n >= 80) return 'Great';
+    if (n >= 70) return 'Good';
+    if (n >= 55) return 'Review';
+    return 'Needs Work';
+  }
+
+  function hexToRgb(hex) {
+    const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!match) return null;
+    return { r: parseInt(match[1], 16), g: parseInt(match[2], 16), b: parseInt(match[3], 16) };
+  }
+
+  function rgbToHex(r, g, b) {
+    return (
+      '#' +
+      [r, g, b]
+        .map((x) => x.toString(16).padStart(2, '0'))
+        .join('')
+    );
+  }
+
+  function darkenRgb(rgb, amount) {
+    const factor = 1 - amount;
+    return {
+      r: Math.round(rgb.r * factor),
+      g: Math.round(rgb.g * factor),
+      b: Math.round(rgb.b * factor)
+    };
+  }
+
+  function scoreBadgeStyle(score) {
+    if (score == null || Number(score) !== Number(score)) {
+      return 'background-color: rgba(51, 51, 51, 0.12); color: #333333; border-color: rgba(51, 51, 51, 0.2);';
+    }
+    const color = scoreColor(score);
+    const rgb = hexToRgb(color);
+    if (!rgb) return '';
+    const text = darkenRgb(rgb, 0.2);
+    return (
+      'background-color: rgba(' +
+      rgb.r +
+      ', ' +
+      rgb.g +
+      ', ' +
+      rgb.b +
+      ', 0.18); color: ' +
+      rgbToHex(text.r, text.g, text.b) +
+      '; border-color: rgba(' +
+      rgb.r +
+      ', ' +
+      rgb.g +
+      ', ' +
+      rgb.b +
+      ', 0.35);'
+    );
+  }
+
+  function scoreSentimentBadgeStyle(score) {
+    const n = Number(score);
+    if (n !== n) return null;
+    if (n >= 90) return { color: '#AFDFDF', background: 'rgba(175, 223, 223, 0.1)' };
+    if (n >= 80) return { color: '#70C494', background: 'rgba(112, 196, 148, 0.1)' };
+    if (n >= 70) return { color: '#a16207', background: '#fef9c3' };
+    if (n >= 55) return { color: '#ea580c', background: '#ffedd5' };
+    return { color: '#dc2626', background: '#fee2e2' };
+  }
+
+  function applyScoreSentimentBadge(el, score) {
+    if (!el) return;
+    const label = scoreLabel(score);
+    const style = scoreSentimentBadgeStyle(score);
+    if (!label || !style) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = label;
+    el.style.color = style.color;
+    el.style.backgroundColor = style.background;
+  }
+
+  function applyCompactScoreDisplay(valueEl, badgeEl, score) {
+    const n = score != null && score !== '' ? Math.round(Number(score)) : null;
+    if (valueEl) {
+      if (n == null || Number.isNaN(n)) {
+        valueEl.textContent = '—';
+        valueEl.style.color = '#333333';
+      } else {
+        valueEl.textContent = String(n);
+        valueEl.style.color = scoreColor(n);
+      }
+    }
+    applyScoreSentimentBadge(badgeEl, n);
   }
 
   /** Normalize score like app: 0–10 scale becomes 0–100 for display */
@@ -282,16 +807,31 @@
 
   function setCategoryScore(name, score) {
     const wrap = document.getElementById('opening-detail-score-' + name);
-    const valueEl = document.getElementById('opening-detail-score-' + name + '-value');
     const barEl = document.getElementById('opening-detail-score-' + name + '-bar');
     if (!wrap) return;
     if (score != null && score > 0) {
       wrap.hidden = false;
-      if (valueEl) valueEl.textContent = score;
-      if (barEl) barEl.style.width = Math.min(100, Math.max(0, score)) + '%';
+      const label =
+        name === 'skill' ? 'Skill' : name === 'experience' ? 'Experience' : 'Education';
+      wrap.setAttribute('aria-label', label + ' match ' + score + ' out of 100');
+      if (barEl) {
+        barEl.style.width = Math.min(100, Math.max(0, score)) + '%';
+        barEl.style.backgroundColor = scoreColor(score);
+      }
     } else {
       wrap.hidden = true;
     }
+    refreshCategoriesCompactVisibility();
+  }
+
+  function refreshCategoriesCompactVisibility() {
+    const container = document.getElementById('opening-detail-score-categories');
+    if (!container) return;
+    const anyVisible = ['skill', 'experience', 'education'].some((name) => {
+      const wrap = document.getElementById('opening-detail-score-' + name);
+      return wrap && !wrap.hidden;
+    });
+    container.hidden = !anyVisible;
   }
 
   const trashIconSvg =
@@ -331,15 +871,14 @@
     const position = escapeHtml(o.title || '');
     const score = o.current_match_score;
     const scoreNum =
-      score != null && score !== '' && score != 0 ? Number(score) : null;
-    const tier = (o.score_tier && escapeHtml(String(o.score_tier))) || 'muted';
+      score != null && score !== '' && score != 0 ? Math.round(Number(score)) : null;
     const hasMatchingApps = Array.isArray(o.matching_applications) && o.matching_applications.length > 0;
     const matchingAppsWarning = hasMatchingApps
       ? '<span class="drawer-worklist-matching-apps-wrap" title="You have applied to roles at this company">' + matchingAppsWarningIconSvg + '</span>'
       : '';
     const scoreHtml =
       scoreNum != null
-        ? '<span class="drawer-worklist-match-badge drawer-worklist-match-badge--' + tier + '">' + scoreNum + '%</span>'
+        ? '<span class="drawer-worklist-match-badge" style="' + scoreBadgeStyle(scoreNum) + '">' + scoreNum + '</span>'
         : '—';
     const isCurrentPage =
       currentPageUrl != null &&
@@ -388,30 +927,41 @@
 
   async function updateProfileCard(persona) {
     const scoreEl = document.getElementById('applica-profile-score');
+    const scoreBadgeEl = document.getElementById('applica-profile-score-badge');
     const resumeEl = document.getElementById('applica-profile-resume');
     const linkEl = document.getElementById('applica-profile-manage-link');
+    const hiringCafeLink = document.getElementById('applica-profile-hiring-cafe-link');
     if (scoreEl) {
-      const hasScore = persona && (persona.match_score != null || persona.match_score === 0);
-      scoreEl.textContent = hasScore ? String(Math.round(Number(persona.match_score))) : '—';
-      scoreEl.className = 'drawer-profile-score-value drawer-profile-score-value--' + (persona?.score_tier || 'muted');
+      const hasScore = persona && persona.match_score != null && persona.match_score !== '';
+      applyCompactScoreDisplay(scoreEl, scoreBadgeEl, hasScore ? persona.match_score : null);
     }
     if (resumeEl) {
-      resumeEl.textContent = persona?.cv_filename ?? '—';
+      const resumeName = persona?.cv_filename ?? '—';
+      resumeEl.textContent = resumeName;
+      resumeEl.title = resumeName !== '—' ? resumeName : '';
     }
     if (linkEl && window.ApplicaAPI && typeof window.ApplicaAPI.appUrl === 'function') {
       try {
         linkEl.href = await window.ApplicaAPI.appUrl('/dashboard');
       } catch (_) {}
     }
+    if (hiringCafeLink) {
+      const url = persona?.hiring_cafe_url;
+      if (url) {
+        hiringCafeLink.href = url;
+        hiringCafeLink.hidden = false;
+      } else {
+        hiringCafeLink.href = '#';
+        hiringCafeLink.hidden = true;
+      }
+    }
   }
-
-  const DRAWER_SELECTED_PERSONA_KEY = 'applica_drawer_selected_persona_id';
 
   function saveSelectedPersonaId(personaId) {
     try {
       if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
         chrome.storage.local.set({
-          [DRAWER_SELECTED_PERSONA_KEY]: personaId ? String(personaId) : null
+          [STORAGE.DRAWER_SELECTED_PERSONA]: personaId ? String(personaId) : null
         }, () => {});
       }
     } catch (_) {}
@@ -424,9 +974,9 @@
           resolve(null);
           return;
         }
-        chrome.storage.local.get([DRAWER_SELECTED_PERSONA_KEY], (data) => {
+        chrome.storage.local.get([STORAGE.DRAWER_SELECTED_PERSONA], (data) => {
           try {
-            const raw = data?.[DRAWER_SELECTED_PERSONA_KEY];
+            const raw = data?.[STORAGE.DRAWER_SELECTED_PERSONA];
             resolve(raw != null && raw !== '' ? String(raw) : null);
           } catch (_) {
             resolve(null);
@@ -461,6 +1011,7 @@
       saveSelectedPersonaId(selectedPersona.id);
       updateProfileCard(selectedPersona);
       fetchOpenings(selectedPersona.id);
+      fetchApplications(selectedPersona.id);
     } else {
       updateProfileCard(null);
       const listEl = document.getElementById('openings-list');
@@ -479,13 +1030,12 @@
     }
   }
 
-  const DRAWER_VIEW_STATE_KEY = 'applica_drawer_view_state';
-
   function saveDrawerViewState(view, openingId) {
+    drawerViewMemory = { view, openingId: openingId ?? null };
     try {
       if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
         chrome.storage.local.set({
-          [DRAWER_VIEW_STATE_KEY]: { view, openingId: openingId ?? null }
+          [STORAGE.DRAWER_VIEW_STATE]: drawerViewMemory
         }, () => {});
       }
     } catch (_) {}
@@ -498,9 +1048,9 @@
           resolve(null);
           return;
         }
-        chrome.storage.local.get([DRAWER_VIEW_STATE_KEY], (data) => {
+        chrome.storage.local.get([STORAGE.DRAWER_VIEW_STATE], (data) => {
           try {
-            const raw = data?.[DRAWER_VIEW_STATE_KEY];
+            const raw = data?.[STORAGE.DRAWER_VIEW_STATE];
             if (raw && (raw.view === 'list' || raw.view === 'detail')) {
               resolve({ view: raw.view, openingId: raw.openingId ?? null });
             } else {
@@ -520,11 +1070,19 @@
   let currentAnalyzingOpening = null;
   let lastOpeningsPayload = null;
 
-  window.addEventListener('message', (event) => {
+  window.addEventListener('message', async (event) => {
     if (event.data?.type === 'applica-drawer-opened') {
       currentPageUrl = event.data.currentPageUrl || null;
       if (lastOpeningsPayload) renderOpenings(lastOpeningsPayload);
       refreshAuthState();
+      const stored = await loadDrawerViewState();
+      if (stored) {
+        drawerViewMemory = stored;
+        applyDrawerViewStateSync();
+      } else {
+        tryShowDetailViewForCurrentPage();
+      }
+      return;
     }
     if (event.data?.type === 'applica-page-data') {
       handlePageDataForAnalyze(event.data);
@@ -538,27 +1096,62 @@
         showApiErrorBanner();
         setAnalyzeStatus('error', r.error);
       } else if (r.filled != null && r.total != null) {
-        setAnalyzeStatus('', r.filled > 0 ? `Filled ${r.filled} of ${r.total} fields.` : 'No matching form fields found.');
-        setTimeout(() => setAnalyzeStatus('', ''), 3000);
+        let msg = r.filled > 0 ? `Filled ${r.filled} of ${r.total} fields.` : 'No matching form fields found.';
+        if (r.resumeAttached > 0) {
+          msg += ' Resume attached.';
+        } else if (r.resumeAttached === 0 && r.total > 0) {
+          msg += ' No resume file input found.';
+        }
+        setAnalyzeStatus('', msg);
+        setTimeout(() => setAnalyzeStatus('', ''), 4000);
       }
     }
   });
 
   let pendingAnalyzePersonaId = null;
   let openingsPollIntervalId = null;
+  let openingsPollDelayId = null;
   let openingsPollStopId = null;
+  let pollingWatchOpeningId = null;
 
-  function startOpeningsPoll(personaId, durationMs) {
+  const OPENINGS_POLL_INTERVAL_MS = 2000;
+  const OPENINGS_POLL_INITIAL_DELAY_MS = 30000;
+  const OPENINGS_POLL_MAX_DURATION_MS = 90000;
+
+  function startOpeningsPoll(personaId, options = {}) {
     stopOpeningsPoll();
-    openingsPollIntervalId = setInterval(() => {
-      fetchOpenings(personaId, { silent: true });
-    }, 2000);
-    if (durationMs > 0) {
-      openingsPollStopId = setTimeout(stopOpeningsPoll, durationMs);
+    if (!personaId) return;
+
+    const delayMs =
+      options.delayMs != null ? options.delayMs : OPENINGS_POLL_INITIAL_DELAY_MS;
+    const maxPollMs =
+      options.maxPollMs != null ? options.maxPollMs : OPENINGS_POLL_MAX_DURATION_MS;
+    pollingWatchOpeningId = options.openingId ?? null;
+
+    const beginPolling = () => {
+      const pollOnce = () => {
+        fetchOpenings(personaId, {
+          silent: true,
+          watchOpeningId: pollingWatchOpeningId
+        });
+      };
+      pollOnce();
+      openingsPollIntervalId = setInterval(pollOnce, OPENINGS_POLL_INTERVAL_MS);
+      openingsPollStopId = setTimeout(stopOpeningsPoll, maxPollMs);
+    };
+
+    if (delayMs > 0) {
+      openingsPollDelayId = setTimeout(beginPolling, delayMs);
+    } else {
+      beginPolling();
     }
   }
 
   function stopOpeningsPoll() {
+    if (openingsPollDelayId != null) {
+      clearTimeout(openingsPollDelayId);
+      openingsPollDelayId = null;
+    }
     if (openingsPollIntervalId != null) {
       clearInterval(openingsPollIntervalId);
       openingsPollIntervalId = null;
@@ -567,6 +1160,7 @@
       clearTimeout(openingsPollStopId);
       openingsPollStopId = null;
     }
+    pollingWatchOpeningId = null;
   }
 
   function handlePageDataForAnalyze(data) {
@@ -590,29 +1184,39 @@
     if (!el) return;
     el.textContent = message || '';
     el.hidden = !message;
-    el.className = 'drawer-hint' + (kind === 'error' ? ' drawer-status-error' : '');
+    el.className = 'drawer-hint drawer-global-status' + (kind === 'error' ? ' drawer-status-error' : '');
+  }
+
+  function setApplicationDetailSaveStatus(kind, message) {
+    const el = document.getElementById('application-detail-save-status');
+    if (!el) return;
+    el.textContent = message || '';
+    el.hidden = !message;
+    el.classList.remove('is-error', 'is-success');
+    if (kind === 'error') el.classList.add('is-error');
+    if (kind === 'success') el.classList.add('is-success');
+  }
+
+  function setDrawerFeedback(kind, message) {
+    setAnalyzeStatus(kind === 'success' ? '' : kind, message);
+    if (isApplicationDetailActive()) {
+      setApplicationDetailSaveStatus(kind, message);
+    }
   }
 
   async function submitOpeningFromPage(url, html, personaId, btn) {
     currentAnalyzingOpening = { url, title: 'Analyzing job posting…', company: '' };
     renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
     try {
-      const res = await window.ApplicaAPI.appFetch('/api/openings', {
+      const data = await window.ApplicaAPI.appFetchJson('/api/openings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, persona_id: personaId, html }),
+        body: JSON.stringify({ url, persona_id: personaId, html })
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showApiErrorBanner();
-        currentAnalyzingOpening = null;
-        renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
-        setAnalyzeStatus('error', data.message || 'Failed to add opening');
-        return;
-      }
       if (data.opening) currentAnalyzingOpening = data.opening;
       fetchOpenings(personaId);
-      startOpeningsPoll(personaId, 60000);
+      const watchId = data.opening?.id ?? null;
+      startOpeningsPoll(personaId, { openingId: watchId });
       setTimeout(() => setAnalyzeStatus('', ''), 3000);
     } catch (err) {
       showApiErrorBanner();
@@ -631,16 +1235,19 @@
       saveSelectedPersonaId(id || null);
       const persona = id ? lastPersonas.find((p) => String(p.id) === id) : null;
       updateProfileCard(persona || null);
-      if (id) fetchOpenings(id);
+      if (id) {
+        fetchOpenings(id);
+        fetchApplications(id);
+      }
     });
   }
 
-  function navigateToUrl(url) {
+  function openUrlInNewTab(url) {
     if (!url) return;
     if (window.parent !== window) {
-      window.parent.postMessage({ type: 'applica-navigate-to', url }, '*');
+      window.parent.postMessage({ type: 'applica-open-tab', url }, '*');
     } else {
-      window.location.href = url;
+      window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
 
@@ -648,41 +1255,94 @@
     const personaId = personaPicker?.value;
     if (!personaId) return;
     try {
-      const res = await window.ApplicaAPI.appFetch(`/api/openings/${openingId}`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchOpenings(personaId);
-      } else {
-        showApiErrorBanner();
-        const data = await res.json().catch(() => ({}));
-        setAnalyzeStatus('error', data.message || 'Could not remove.');
-      }
+      await window.ApplicaAPI.appFetchJson(`/api/openings/${openingId}`, { method: 'DELETE' });
+      fetchOpenings(personaId);
     } catch (err) {
       showApiErrorBanner();
       setAnalyzeStatus('error', err?.message || 'Could not remove.');
     }
   }
 
-  let selectedOpening = null;
-
-  function setListOnlyVisibility(visible) {
-    const block = document.getElementById('drawer-list-only-block');
-    if (block) {
-      block.hidden = !visible;
-      block.style.display = visible ? '' : 'none';
+  async function handleBulkDeleteBelowScore(threshold) {
+    const personaId = personaPicker?.value;
+    if (!personaId) return;
+    const confirmed = window.confirm(
+      'Delete all jobs with a match score below ' + threshold + '? This cannot be undone.'
+    );
+    if (!confirmed) return;
+    try {
+      const data = await window.ApplicaAPI.appFetchJson(
+        '/api/openings/bulk?persona_id=' +
+          encodeURIComponent(personaId) +
+          '&score=' +
+          encodeURIComponent(String(threshold)),
+        { method: 'DELETE' }
+      );
+      if (selectedOpening) showOpeningsList();
+      setAnalyzeStatus('', data.message || 'Deleted.');
+      fetchOpenings(personaId);
+      setTimeout(() => setAnalyzeStatus('', ''), 4000);
+    } catch (err) {
+      showApiErrorBanner();
+      setAnalyzeStatus('error', err?.message || 'Could not delete openings.');
     }
   }
 
-  function setQueueVisibility(visible) {
-    const queueBlock = document.getElementById('score-queue-section-content');
-    if (queueBlock) queueBlock.hidden = !visible;
+  function closeBulkDeleteMenu() {
+    const menu = document.getElementById('openings-bulk-delete-menu');
+    const toggle = document.getElementById('openings-bulk-delete-toggle');
+    const chevron = document.getElementById('openings-bulk-delete-chevron');
+    if (menu) menu.hidden = true;
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    if (chevron) chevron.innerHTML = '<path d="m6 9 6 6 6-6"></path>';
   }
+
+  function openBulkDeleteMenu() {
+    const menu = document.getElementById('openings-bulk-delete-menu');
+    const toggle = document.getElementById('openings-bulk-delete-toggle');
+    const chevron = document.getElementById('openings-bulk-delete-chevron');
+    if (menu) menu.hidden = false;
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    if (chevron) chevron.innerHTML = '<path d="m18 15-6-6-6 6"></path>';
+  }
+
+  const bulkDeleteToggle = document.getElementById('openings-bulk-delete-toggle');
+  const bulkDeleteMenu = document.getElementById('openings-bulk-delete-menu');
+  const bulkDeleteWrap = document.querySelector('.drawer-bulk-delete-wrap');
+
+  if (bulkDeleteMenu) {
+    bulkDeleteMenu.querySelectorAll('[data-bulk-delete-score]').forEach((btn) => {
+      const score = Number(btn.getAttribute('data-bulk-delete-score'));
+      btn.style.cssText = scoreBadgeStyle(score);
+    });
+  }
+
+  if (bulkDeleteToggle && bulkDeleteMenu) {
+    bulkDeleteToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (bulkDeleteMenu.hidden) openBulkDeleteMenu();
+      else closeBulkDeleteMenu();
+    });
+
+    bulkDeleteMenu.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-bulk-delete-score]');
+      if (!btn) return;
+      e.stopPropagation();
+      closeBulkDeleteMenu();
+      const threshold = btn.getAttribute('data-bulk-delete-score');
+      if (threshold) handleBulkDeleteBelowScore(threshold);
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (bulkDeleteWrap && !bulkDeleteWrap.contains(e.target)) closeBulkDeleteMenu();
+  });
 
   function showOpeningDetail(opening) {
     selectedOpening = opening;
+    applicationsViewMemory = { view: 'list', applicationId: null };
     saveDrawerViewState('detail', opening.id ?? null);
-    const listView = document.getElementById('openings-list-view');
-    const detailView = document.getElementById('opening-detail-view');
-    if (!listView || !detailView) return;
+    applyDrawerLayout();
     const matchingAppsEl = document.getElementById('opening-detail-matching-apps');
     const matchingAppsTitleEl = matchingAppsEl?.querySelector('.drawer-detail-matching-apps-title');
     const matchingAppsListEl = matchingAppsEl?.querySelector('.drawer-detail-matching-apps-list');
@@ -736,13 +1396,17 @@
         scoreWrap.hidden = false;
         const scoreValueEl = document.getElementById('opening-detail-score-value');
         const scoreBarEl = document.getElementById('opening-detail-score-bar');
+        const scoreLabelEl = document.getElementById('opening-detail-score-label');
+        const color = scoreColor(mainScore);
         if (scoreValueEl) {
           scoreValueEl.textContent = mainScore;
-          scoreValueEl.style.color = scoreTierToColor(opening.score_tier);
+          scoreValueEl.style.color = color;
         }
         if (scoreBarEl) {
           scoreBarEl.style.width = Math.min(100, Math.max(0, mainScore)) + '%';
+          scoreBarEl.style.backgroundColor = color;
         }
+        applyScoreSentimentBadge(scoreLabelEl, mainScore);
         const analysis = opening.resume_analysis || {};
         const skillScore = getScoreFromAnalysis(analysis, 'skill_match_score');
         const experienceScore = getScoreFromAnalysis(analysis, 'experience_match_score');
@@ -754,28 +1418,21 @@
         scoreWrap.hidden = true;
       }
     }
+    updateOpeningDetailScoringIndicator(opening);
     const openLink = document.getElementById('opening-detail-open-url');
     openLink.href = opening.url || '#';
     openLink.hidden = !opening.url;
-    setListOnlyVisibility(false);
-    setQueueVisibility(false);
-    listView.hidden = true;
-    detailView.hidden = false;
+    syncOpeningDetailApplicationActions(opening);
+    renderCustomResumeSection(opening);
+    applyDrawerLayout();
   }
 
   function showOpeningsList() {
     selectedOpening = null;
     saveDrawerViewState('list', null);
-    const listView = document.getElementById('openings-list-view');
-    const detailView = document.getElementById('opening-detail-view');
-    if (listView) listView.hidden = false;
-    if (detailView) detailView.hidden = true;
-    setListOnlyVisibility(true);
-    const queueBlock = document.getElementById('score-queue-section-content');
-    const queueEl = document.getElementById('score-queue-list');
-    if (queueBlock && queueEl) {
-      queueBlock.hidden = queueEl.innerHTML.trim() === '';
-    }
+    applyDrawerLayout();
+    const personaId = document.getElementById('applica-persona-picker')?.value;
+    if (personaId) fetchApplications(personaId, { silent: true });
   }
 
   if (scoreQueueSection) {
@@ -820,7 +1477,7 @@
         if (opening) {
           showOpeningDetail(opening);
         } else {
-          navigateToUrl(url);
+          openUrlInNewTab(url);
         }
         return;
       }
@@ -828,14 +1485,114 @@
       if (link?.href) {
         e.preventDefault();
         e.stopPropagation();
-        navigateToUrl(link.href);
+        openUrlInNewTab(link.href);
         return;
       }
       const queueItem = e.target.closest('.drawer-queue-item[data-url]');
       if (queueItem) {
         e.preventDefault();
-        navigateToUrl(queueItem.getAttribute('data-url'));
+        openUrlInNewTab(queueItem.getAttribute('data-url'));
       }
+    });
+  }
+
+  const applicationDetailBack = document.getElementById('application-detail-back');
+  if (applicationDetailBack) {
+    applicationDetailBack.addEventListener('click', () => showApplicationsList());
+  }
+
+  const applicationsSection = document.getElementById('applications-section-content');
+  const applicationsList = document.getElementById('applications-list');
+  if (applicationsSection) {
+    applicationsSection.addEventListener('click', (e) => {
+      if (e.target.closest('#application-detail-view')) return;
+      if (e.target.closest('select.drawer-application-row-status')) return;
+      const row = e.target.closest('.drawer-application-item[data-application-id]');
+      if (!row) return;
+      e.preventDefault();
+      const applicationId = row.getAttribute('data-application-id');
+      const apps = lastApplicationsPayload?.data?.applications || [];
+      const app = apps.find((a) => a != null && String(a.id) === applicationId);
+      if (app) showApplicationDetail(app);
+    });
+  }
+
+  if (applicationsList) {
+    applicationsList.addEventListener('mousedown', (e) => {
+      if (e.target.closest('select.drawer-application-row-status')) {
+        e.stopPropagation();
+      }
+    });
+    applicationsList.addEventListener('change', async (e) => {
+      const select = e.target.closest('select.drawer-application-row-status');
+      if (!select) return;
+      const applicationId = select.getAttribute('data-application-id');
+      const status = select.value;
+      if (!applicationId || !status) return;
+      select.disabled = true;
+      try {
+        const updated = await updateApplication(applicationId, { status });
+        patchApplicationInList(applicationId, { status: updated.status });
+        if (selectedApplication != null && String(selectedApplication.id) === applicationId) {
+          selectedApplication = { ...selectedApplication, status: updated.status };
+          if (isApplicationDetailActive()) {
+            fillApplicationFields(selectedApplication);
+          }
+        }
+        if (!isApplicationDetailActive()) {
+          setDrawerFeedback('success', 'Status updated.');
+          setTimeout(() => setDrawerFeedback('', ''), 2500);
+        }
+      } catch (err) {
+        const apps = lastApplicationsPayload?.data?.applications || [];
+        const app = apps.find((a) => a != null && String(a.id) === applicationId);
+        if (app) select.value = normalizeApplicationStatus(app.status);
+        setDrawerFeedback('error', err?.message || 'Could not update status.');
+      } finally {
+        select.disabled = false;
+      }
+    });
+  }
+
+  initApplicationFormSelects();
+
+  const applicationDetailSave = document.getElementById('application-detail-save');
+  if (applicationDetailSave) {
+    applicationDetailSave.addEventListener('click', async () => {
+      const appId = selectedApplication?.id;
+      if (!appId) {
+        setDrawerFeedback('error', 'Could not save — open the application again.');
+        return;
+      }
+      const saveLabel = applicationDetailSave.textContent;
+      applicationDetailSave.disabled = true;
+      setApplicationDetailSaveStatus('', 'Saving…');
+      try {
+        const fields = readApplicationFields();
+        if (!fields.status) {
+          throw new Error('Status is required.');
+        }
+        const updated = await updateApplication(appId, fields);
+        selectedApplication = updated;
+        upsertApplicationInList(updated);
+        fillApplicationFields(updated);
+        setApplicationDetailSaveStatus('success', 'Application saved.');
+        setTimeout(() => setApplicationDetailSaveStatus('', ''), 3000);
+      } catch (err) {
+        setApplicationDetailSaveStatus('error', err?.message || 'Could not save application.');
+      } finally {
+        applicationDetailSave.disabled = false;
+        applicationDetailSave.textContent = saveLabel;
+      }
+    });
+  }
+
+  const applicationDetailOpenLink = document.getElementById('application-detail-open-link');
+  if (applicationDetailOpenLink) {
+    applicationDetailOpenLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const href = applicationDetailOpenLink.getAttribute('href');
+      if (href && href !== '#') openUrlInNewTab(href);
     });
   }
 
@@ -850,15 +1607,9 @@
       if (!selectedOpening?.id || window.parent === window) return;
       setAnalyzeStatus('', 'Filling form…');
       try {
-        const res = await window.ApplicaAPI.appFetch(
+        const data = await window.ApplicaAPI.appFetchJson(
           '/api/openings/' + encodeURIComponent(selectedOpening.id) + '/form_details'
         );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          showApiErrorBanner();
-          setAnalyzeStatus('error', data.message || 'Could not load form details.');
-          return;
-        }
         const formData = data.form_data;
         if (!formData || typeof formData !== 'object') {
           showApiErrorBanner();
@@ -877,7 +1628,7 @@
   if (openingDetailOpenUrl) {
     openingDetailOpenUrl.addEventListener('click', (e) => {
       e.preventDefault();
-      if (selectedOpening?.url) navigateToUrl(selectedOpening.url);
+      if (selectedOpening?.url) openUrlInNewTab(selectedOpening.url);
     });
   }
 
@@ -887,25 +1638,44 @@
       if (!selectedOpening?.id) return;
       setAnalyzeStatus('', 'Recording application…');
       try {
-        const res = await window.ApplicaAPI.appFetch('/api/applications', {
+        const data = await window.ApplicaAPI.appFetchJson('/api/applications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ opening_id: String(selectedOpening.id) })
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          showApiErrorBanner();
-          setAnalyzeStatus('error', data.message || 'Could not record application.');
-          return;
-        }
         const personaId = personaPicker?.value;
-        if (personaId) await fetchOpenings(personaId);
-        showOpeningsList();
-        setAnalyzeStatus('', '');
+        selectedApplication = data.application || null;
+        selectedOpening = {
+          ...selectedOpening,
+          has_application: true,
+          linked_application: data.application || null
+        };
+        upsertApplicationInList(data.application);
+        syncOpeningDetailApplicationActions(selectedOpening);
+        renderCustomResumeSection(selectedOpening);
+        if (personaId) {
+          await fetchApplications(personaId, { silent: true });
+          await fetchOpenings(personaId, { silent: true });
+        }
+        setAnalyzeStatus('', 'Application recorded.');
+        setTimeout(() => setAnalyzeStatus('', ''), 3000);
       } catch (err) {
         showApiErrorBanner();
         setAnalyzeStatus('error', err?.message || 'Request failed.');
       }
+    });
+  }
+
+  const openingDetailResumeUpload = document.getElementById('opening-detail-resume-upload');
+  const openingDetailUploadResumeBtn = document.getElementById('opening-detail-upload-resume');
+  if (openingDetailUploadResumeBtn && openingDetailResumeUpload) {
+    openingDetailUploadResumeBtn.addEventListener('click', () => {
+      openingDetailResumeUpload.click();
+    });
+    openingDetailResumeUpload.addEventListener('change', () => {
+      const file = openingDetailResumeUpload.files?.[0];
+      if (!file) return;
+      submitCustomResumeUpload(file);
     });
   }
 
