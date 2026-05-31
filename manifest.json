@@ -11,9 +11,7 @@
   ],
   "host_permissions": [
     "http://localhost:4000/*",
-    "https://*.fly.dev/*",
-    "https://app.applica.com/*",
-    "<all_urls>"
+    "https://*.fly.dev/*"
   ],
   "action": {
     "default_icon": "images/applica_logo.png",
