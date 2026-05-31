@@ -43,7 +43,7 @@ See **[ARCHITECTURE.md](./ARCHITECTURE.md)** for layout modes (`applyDrawerLayou
 
 ## Host permissions
 
-Adjust `host_permissions` in `manifest.json` for your app origin (localhost, Fly, production domain).
+`manifest.json` includes `<all_urls>` so the drawer and form fill can run on any job board (Workable, Greenhouse, LinkedIn, etc.). Without it, Chrome blocks `chrome.scripting` injection on those hosts. Also listed explicitly: localhost (dev + OAuth callback), Fly, and production app origin.
 
 ## Contributing
 

@@ -235,6 +235,15 @@
     if (opening) showOpeningDetail(opening);
   }
 
+  function tryShowApplicationDetailForCurrentPage() {
+    if (!currentPageUrl || isOpeningDetailActive()) return;
+    const apps = lastApplicationsPayload?.data?.applications;
+    if (!Array.isArray(apps)) return;
+    const normalized = normalizeUrlForCompare(currentPageUrl);
+    const app = apps.find((a) => a?.link && normalizeUrlForCompare(a.link) === normalized);
+    if (app) showApplicationDetail(app);
+  }
+
   function applyDrawerViewStateSync() {
     if (isApplicationDetailActive()) {
       applyDrawerLayout();
@@ -443,9 +452,17 @@
       '">' +
       statusOptionsHtml(normalizeApplicationStatus(app.status)) +
       '</select>';
+    const isCurrentPage = applicationMatchesCurrentPage(app);
+    const rowClass =
+      'drawer-worklist-item drawer-application-item' +
+      (isCurrentPage ? ' drawer-opening-item-current' : '');
+    const dataLink = app.link ? ' data-link="' + escapeHtml(app.link) + '"' : '';
     return (
-      '<div class="drawer-worklist-item drawer-application-item"' +
+      '<div class="' +
+      rowClass +
+      '"' +
       dataApplicationId +
+      dataLink +
       '><div class="drawer-worklist-item-top"><div class="drawer-worklist-item-left"><div class="drawer-worklist-item-company">' +
       company +
       '</div><div class="drawer-worklist-item-position">' +
@@ -481,16 +498,23 @@
       applyDrawerLayout();
       return;
     }
-    listEl.innerHTML = apps.slice(0, 12).map(applicationRowHtml).join('');
+    const sortedApps = [...apps].sort((a, b) => {
+      const aCurrent = applicationMatchesCurrentPage(a);
+      const bCurrent = applicationMatchesCurrentPage(b);
+      if (aCurrent && !bCurrent) return -1;
+      if (!aCurrent && bCurrent) return 1;
+      return 0;
+    });
+    listEl.innerHTML = sortedApps.slice(0, 12).map(applicationRowHtml).join('');
     applyDrawerLayout();
     if (
       applicationsViewMemory.view === 'detail' &&
       applicationsViewMemory.applicationId != null
     ) {
-      const active = apps.find(
+      const active = sortedApps.find(
         (a) => a != null && String(a.id) === String(applicationsViewMemory.applicationId)
       );
-      if (active) showApplicationDetail(active, { skipSaveState: true, skipFormFill: true });
+      if (active) showApplicationDetail(active, { skipSaveState: true });
       else showApplicationsList();
     }
   }
@@ -614,6 +638,7 @@
     selectedApplication = app;
     if (!options.skipSaveState) {
       applicationsViewMemory = { view: 'detail', applicationId: app.id ?? null };
+      saveApplicationsViewState();
       setApplicationDetailSaveStatus('', '');
     }
     applyDrawerLayout();
@@ -649,6 +674,7 @@
 
   function showApplicationsList() {
     applicationsViewMemory = { view: 'list', applicationId: null };
+    saveApplicationsViewState();
     applyDrawerLayout();
   }
 
@@ -677,6 +703,14 @@
       u = parsed.origin + parsed.pathname;
     } catch (_) {}
     return u.endsWith('/') && u.length > 1 ? u.slice(0, -1) : u;
+  }
+
+  function applicationMatchesCurrentPage(app) {
+    return (
+      currentPageUrl != null &&
+      app?.link != null &&
+      normalizeUrlForCompare(app.link) === normalizeUrlForCompare(currentPageUrl)
+    );
   }
 
   /** Score colors and badges — mirrors YouWeb.Helpers.LiveHelpers + ScoreSentiment */
@@ -925,20 +959,38 @@
 
   let lastPersonas = [];
 
+  function syncProfilePickerLayout() {
+    const singleProfile = lastPersonas.length === 1;
+    const pickerBlock = document.getElementById('drawer-profile-picker-block');
+    const resumeRow = document.getElementById('drawer-profile-resume-row');
+    const resumeSingle = document.getElementById('drawer-profile-resume-single');
+    const profileCard = document.getElementById('drawer-profile-card');
+    if (pickerBlock) pickerBlock.hidden = singleProfile;
+    if (resumeRow) resumeRow.hidden = singleProfile;
+    if (resumeSingle) resumeSingle.hidden = !singleProfile;
+    if (profileCard) profileCard.classList.toggle('drawer-profile-card--single', singleProfile);
+  }
+
   async function updateProfileCard(persona) {
     const scoreEl = document.getElementById('applica-profile-score');
     const scoreBadgeEl = document.getElementById('applica-profile-score-badge');
     const resumeEl = document.getElementById('applica-profile-resume');
+    const resumeSingleEl = document.getElementById('drawer-profile-resume-single');
     const linkEl = document.getElementById('applica-profile-manage-link');
     const hiringCafeLink = document.getElementById('applica-profile-hiring-cafe-link');
     if (scoreEl) {
       const hasScore = persona && persona.match_score != null && persona.match_score !== '';
       applyCompactScoreDisplay(scoreEl, scoreBadgeEl, hasScore ? persona.match_score : null);
     }
+    const resumeName = persona?.cv_filename ?? '—';
+    const resumeTitle = resumeName !== '—' ? resumeName : '';
     if (resumeEl) {
-      const resumeName = persona?.cv_filename ?? '—';
       resumeEl.textContent = resumeName;
-      resumeEl.title = resumeName !== '—' ? resumeName : '';
+      resumeEl.title = resumeTitle;
+    }
+    if (resumeSingleEl) {
+      resumeSingleEl.textContent = resumeName;
+      resumeSingleEl.title = resumeTitle;
     }
     if (linkEl && window.ApplicaAPI && typeof window.ApplicaAPI.appUrl === 'function') {
       try {
@@ -992,6 +1044,8 @@
     const picker = document.getElementById('applica-persona-picker');
     if (!picker) return;
     if (payload.error) {
+      lastPersonas = [];
+      syncProfilePickerLayout();
       picker.innerHTML = `<option value="">${escapeHtml(payload.error)}</option>`;
       picker.disabled = true;
       updateProfileCard(null);
@@ -999,6 +1053,7 @@
     }
     const personas = payload.data?.personas || [];
     lastPersonas = personas;
+    syncProfilePickerLayout();
     picker.disabled = false;
     picker.innerHTML = personas.length
       ? personas.map((p) => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.title || p.name || 'Persona')}</option>`).join('')
@@ -1041,6 +1096,44 @@
     } catch (_) {}
   }
 
+  function saveApplicationsViewState() {
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+        chrome.storage.local.set({
+          [STORAGE.DRAWER_APPLICATIONS_VIEW]: applicationsViewMemory
+        }, () => {});
+      }
+    } catch (_) {}
+  }
+
+  function loadApplicationsViewState() {
+    return new Promise((resolve) => {
+      try {
+        if (typeof chrome === 'undefined' || !chrome?.storage?.local) {
+          resolve(null);
+          return;
+        }
+        chrome.storage.local.get([STORAGE.DRAWER_APPLICATIONS_VIEW], (data) => {
+          try {
+            const raw = data?.[STORAGE.DRAWER_APPLICATIONS_VIEW];
+            if (raw && (raw.view === 'list' || raw.view === 'detail')) {
+              resolve({
+                view: raw.view,
+                applicationId: raw.applicationId ?? null
+              });
+            } else {
+              resolve(null);
+            }
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
   function loadDrawerViewState() {
     return new Promise((resolve) => {
       try {
@@ -1074,13 +1167,25 @@
     if (event.data?.type === 'applica-drawer-opened') {
       currentPageUrl = event.data.currentPageUrl || null;
       if (lastOpeningsPayload) renderOpenings(lastOpeningsPayload);
+      if (lastApplicationsPayload) renderApplications(lastApplicationsPayload);
       refreshAuthState();
-      const stored = await loadDrawerViewState();
-      if (stored) {
-        drawerViewMemory = stored;
+      const storedApps = await loadApplicationsViewState();
+      if (storedApps) {
+        applicationsViewMemory = storedApps;
+      }
+      const storedOpenings = await loadDrawerViewState();
+      if (storedOpenings) {
+        drawerViewMemory = storedOpenings;
+      }
+      if (isApplicationDetailActive()) {
+        applyDrawerLayout();
+      } else if (storedOpenings) {
         applyDrawerViewStateSync();
       } else {
         tryShowDetailViewForCurrentPage();
+        if (!isOpeningDetailActive()) {
+          tryShowApplicationDetailForCurrentPage();
+        }
       }
       return;
     }
@@ -1243,9 +1348,25 @@
   }
 
   function openUrlInNewTab(url) {
+    openJobPostingUrl(url, { sameTab: false });
+  }
+
+  /**
+   * Open a job URL and keep drawer context (application detail, etc.) across navigation.
+   * Same-tab: navigates the host page and reopens the drawer there (default from application detail).
+   * New tab: opens a tab with drawer auto-open; persisted view state restores application detail.
+   */
+  function openJobPostingUrl(url, options = {}) {
     if (!url) return;
+    const sameTab = options.sameTab === true;
+    saveApplicationsViewState();
     if (window.parent !== window) {
-      window.parent.postMessage({ type: 'applica-open-tab', url }, '*');
+      window.parent.postMessage(
+        { type: sameTab ? 'applica-navigate-to' : 'applica-open-tab', url },
+        '*'
+      );
+    } else if (sameTab) {
+      window.location.href = url;
     } else {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
@@ -1592,7 +1713,9 @@
     applicationDetailOpenLink.addEventListener('click', (e) => {
       e.preventDefault();
       const href = applicationDetailOpenLink.getAttribute('href');
-      if (href && href !== '#') openUrlInNewTab(href);
+      if (!href || href === '#') return;
+      const sameTab = !(e.metaKey || e.ctrlKey || e.shiftKey);
+      openJobPostingUrl(href, { sameTab });
     });
   }
 
