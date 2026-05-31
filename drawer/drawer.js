@@ -20,8 +20,11 @@
   const apiErrorBanner = document.getElementById('api-error-banner');
 
   const API_FEEDBACK_DISMISS_MS = 4000;
+  const ANALYZE_PAGE_DATA_TIMEOUT_MS = 15000;
   let apiErrorBannerTimeout = null;
   let analyzeStatusClearTimeout = null;
+  let analyzePageDataTimeoutId = null;
+  let parentPageOrigin = '*';
 
   function showApiErrorBanner() {
     if (!apiErrorBanner) return;
@@ -37,6 +40,29 @@
     loginSection.hidden = section !== 'login';
     scoreQueueSection.hidden = section !== 'signed-in';
     signedInSection.hidden = section !== 'signed-in';
+  }
+
+  function isTrustedParentMessage(event) {
+    if (window.parent === window) return true;
+    return event.source === window.parent;
+  }
+
+  function postToParent(message) {
+    if (window.parent === window) return;
+    window.parent.postMessage(message, parentPageOrigin);
+  }
+
+  function clearAnalyzePageDataTimeout() {
+    if (analyzePageDataTimeoutId != null) {
+      clearTimeout(analyzePageDataTimeoutId);
+      analyzePageDataTimeoutId = null;
+    }
+  }
+
+  function cancelPendingAnalyze() {
+    clearAnalyzePageDataTimeout();
+    pendingAnalyzePersonaId = null;
+    syncAnalyzeJobButtonState();
   }
 
   async function fetchPersonas() {
@@ -116,6 +142,7 @@
       const snapshot = openingsSnapshot(openings);
       const unchanged = snapshot === lastOpeningsSnapshot;
       if (unchanged && options.silent === true) {
+        maybeResumeScoringPoll(personaId);
         return;
       }
       lastOpeningsSnapshot = snapshot;
@@ -124,6 +151,7 @@
       if (watchId && openingHasScore(findOpeningById(watchId))) {
         stopOpeningsPoll();
       }
+      maybeResumeScoringPoll(personaId);
     } catch (err) {
       showApiErrorBanner();
       lastOpeningsSnapshot = null;
@@ -414,6 +442,15 @@
     setVisible(document.getElementById('opening-detail-view'), isOpeningDetail);
     setVisible(document.getElementById('applications-list-view'), isMain);
     setVisible(document.getElementById('application-detail-view'), isAppDetail);
+
+    const analyzeStatusEl = document.getElementById('analyze-status');
+    if (analyzeStatusEl) {
+      if (!isMain) {
+        analyzeStatusEl.hidden = true;
+      } else if (!analyzeStatusEl.textContent) {
+        analyzeStatusEl.hidden = true;
+      }
+    }
   }
 
   async function fetchApplications(personaId, options = {}) {
@@ -1217,7 +1254,10 @@
   let lastOpeningsPayload = null;
 
   window.addEventListener('message', async (event) => {
+    if (!isTrustedParentMessage(event)) return;
+
     if (event.data?.type === 'applica-drawer-opened') {
+      parentPageOrigin = event.origin || '*';
       currentPageUrl = event.data.currentPageUrl || null;
       if (lastOpeningsPayload) renderOpenings(lastOpeningsPayload);
       if (lastApplicationsPayload) renderApplications(lastApplicationsPayload);
@@ -1322,11 +1362,26 @@
     pollingWatchOpeningId = null;
   }
 
+  /** Resume polling after navigation reloads the drawer iframe mid-score. */
+  function maybeResumeScoringPoll(personaId) {
+    if (!personaId || openingsPollIntervalId != null) return;
+    const opening =
+      (isOpeningDetailActive() && selectedOpening) ||
+      (pollingWatchOpeningId && findOpeningById(pollingWatchOpeningId));
+    if (opening && isOpeningScoring(opening)) {
+      startOpeningsPoll(personaId, {
+        openingId: opening.id,
+        delayMs: 0,
+        maxPollMs: OPENINGS_POLL_MAX_DURATION_MS
+      });
+    }
+  }
+
   function handlePageDataForAnalyze(data) {
+    clearAnalyzePageDataTimeout();
     const personaId = pendingAnalyzePersonaId;
     pendingAnalyzePersonaId = null;
-    const btn = document.getElementById('analyze-job-posting-btn');
-    if (btn) btn.disabled = false;
+    syncAnalyzeJobButtonState();
     if (data.error) {
       setAnalyzeStatus('error', data.error);
       return;
@@ -1427,10 +1482,7 @@
     const sameTab = options.sameTab === true;
     saveApplicationsViewState();
     if (window.parent !== window) {
-      window.parent.postMessage(
-        { type: sameTab ? 'applica-navigate-to' : 'applica-open-tab', url },
-        '*'
-      );
+      postToParent({ type: sameTab ? 'applica-navigate-to' : 'applica-open-tab', url });
     } else if (sameTab) {
       window.location.href = url;
     } else {
@@ -1607,6 +1659,8 @@
     syncOpeningDetailApplicationActions(opening);
     renderCustomResumeSection(opening);
     applyDrawerLayout();
+    const personaId = document.getElementById('applica-persona-picker')?.value;
+    if (personaId) maybeResumeScoringPoll(personaId);
   }
 
   function showOpeningsList() {
@@ -1800,7 +1854,7 @@
           setAnalyzeStatus('error', 'Invalid response: form_data missing.');
           return;
         }
-        window.parent.postMessage({ type: 'applica-fill-form-with-data', form_data: formData }, '*');
+        postToParent({ type: 'applica-fill-form-with-data', form_data: formData });
       } catch (err) {
         showApiErrorBanner();
         setAnalyzeStatus('error', err?.message || 'Request failed.');
@@ -1875,10 +1929,19 @@
       analyzeBtn.disabled = true;
       setAnalyzeStatus('', '');
       if (window.parent !== window) {
-        window.parent.postMessage({ type: 'applica-analyze-current-page' }, '*');
+        clearAnalyzePageDataTimeout();
+        analyzePageDataTimeoutId = setTimeout(() => {
+          analyzePageDataTimeoutId = null;
+          if (!pendingAnalyzePersonaId) return;
+          cancelPendingAnalyze();
+          setAnalyzeStatus(
+            'error',
+            'Could not read this page. Try reloading and opening the drawer again.'
+          );
+        }, ANALYZE_PAGE_DATA_TIMEOUT_MS);
+        postToParent({ type: 'applica-analyze-current-page' });
       } else {
-        pendingAnalyzePersonaId = null;
-        analyzeBtn.disabled = false;
+        cancelPendingAnalyze();
         setAnalyzeStatus('error', 'Open the drawer on a job page to analyze it.');
       }
     });
@@ -1922,9 +1985,7 @@
   });
 
   closeDrawerBtn.addEventListener('click', () => {
-    if (window.parent !== window) {
-      window.parent.postMessage({ type: 'applica-drawer-close' }, '*');
-    }
+    postToParent({ type: 'applica-drawer-close' });
   });
 
   const authStorageChanged = (changes, areaName) => {
@@ -1951,6 +2012,6 @@
 
   // Tell parent we're ready so it can send drawer-opened and/or push personas (avoids race after extension reload)
   if (window.parent !== window) {
-    window.parent.postMessage({ type: 'applica-drawer-ready' }, '*');
+    postToParent({ type: 'applica-drawer-ready' });
   }
 })();
