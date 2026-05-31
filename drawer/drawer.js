@@ -197,13 +197,7 @@
     const bulkToolbar = document.getElementById('openings-bulk-delete-toolbar');
     if (bulkToolbar) bulkToolbar.hidden = openings.length === 0;
 
-    const analyzeBtn = document.getElementById('analyze-job-posting-btn');
-    if (analyzeBtn) {
-      const pageAlreadyInList =
-        currentPageUrl != null &&
-        openings.some((o) => o.url != null && normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl));
-      analyzeBtn.disabled = !!pageAlreadyInList;
-    }
+    syncAnalyzeJobButtonState();
 
     if (scored.length > 0) {
       const sortedScored = [...scored].sort((a, b) => {
@@ -483,12 +477,14 @@
       listEl.innerHTML = '';
       applicationsSectionAvailable = false;
       applyDrawerLayout();
+      syncAnalyzeJobButtonState();
       return;
     }
     applicationsSectionAvailable = true;
     if (payload.error) {
       listEl.innerHTML = '<div class="drawer-worklist-empty">' + escapeHtml(payload.error) + '</div>';
       applyDrawerLayout();
+      syncAnalyzeJobButtonState();
       return;
     }
     lastApplicationsPayload = payload;
@@ -496,6 +492,7 @@
     if (apps.length === 0) {
       listEl.innerHTML = '<div class="drawer-worklist-empty">No applications yet.</div>';
       applyDrawerLayout();
+      syncAnalyzeJobButtonState();
       return;
     }
     const sortedApps = [...apps].sort((a, b) => {
@@ -517,6 +514,7 @@
       if (active) showApplicationDetail(active, { skipSaveState: true });
       else showApplicationsList();
     }
+    syncAnalyzeJobButtonState();
   }
 
   function upsertApplicationInList(application) {
@@ -711,6 +709,31 @@
       app?.link != null &&
       normalizeUrlForCompare(app.link) === normalizeUrlForCompare(currentPageUrl)
     );
+  }
+
+  function pageAlreadyTrackedAsOpening() {
+    const openings = lastOpeningsPayload?.data?.openings || [];
+    return (
+      currentPageUrl != null &&
+      openings.some(
+        (o) => o?.url != null && normalizeUrlForCompare(o.url) === normalizeUrlForCompare(currentPageUrl)
+      )
+    );
+  }
+
+  function pageAlreadyTrackedAsApplication() {
+    const apps = lastApplicationsPayload?.data?.applications || [];
+    return apps.some((a) => applicationMatchesCurrentPage(a));
+  }
+
+  function syncAnalyzeJobButtonState() {
+    const analyzeBtn = document.getElementById('analyze-job-posting-btn');
+    if (!analyzeBtn) return;
+    const alreadyTracked = pageAlreadyTrackedAsOpening() || pageAlreadyTrackedAsApplication();
+    analyzeBtn.disabled = alreadyTracked;
+    analyzeBtn.title = alreadyTracked
+      ? 'This job is already in your queue or applications.'
+      : 'Analyze the current tab as a new job posting';
   }
 
   /** Score colors and badges — mirrors YouWeb.Helpers.LiveHelpers + ScoreSentiment */
@@ -960,15 +983,18 @@
   let lastPersonas = [];
 
   function syncProfilePickerLayout() {
-    const singleProfile = lastPersonas.length === 1;
+    const showPicker = lastPersonas.length > 1;
     const pickerBlock = document.getElementById('drawer-profile-picker-block');
     const resumeRow = document.getElementById('drawer-profile-resume-row');
     const resumeSingle = document.getElementById('drawer-profile-resume-single');
     const profileCard = document.getElementById('drawer-profile-card');
-    if (pickerBlock) pickerBlock.hidden = singleProfile;
-    if (resumeRow) resumeRow.hidden = singleProfile;
-    if (resumeSingle) resumeSingle.hidden = !singleProfile;
-    if (profileCard) profileCard.classList.toggle('drawer-profile-card--single', singleProfile);
+    if (pickerBlock) pickerBlock.hidden = !showPicker;
+    if (resumeRow) resumeRow.hidden = !showPicker;
+    if (resumeSingle) resumeSingle.hidden = showPicker;
+    if (profileCard) {
+      profileCard.classList.toggle('drawer-profile-card--single', !showPicker);
+      profileCard.classList.toggle('drawer-profile-card--multi', showPicker);
+    }
   }
 
   async function updateProfileCard(persona) {
@@ -994,7 +1020,7 @@
     }
     if (linkEl && window.ApplicaAPI && typeof window.ApplicaAPI.appUrl === 'function') {
       try {
-        linkEl.href = await window.ApplicaAPI.appUrl('/dashboard');
+        linkEl.href = await window.ApplicaAPI.appUrl('/dashboard/profiles');
       } catch (_) {}
     }
     if (hiringCafeLink) {
@@ -1007,6 +1033,7 @@
         hiringCafeLink.hidden = true;
       }
     }
+    syncProfilePickerLayout();
   }
 
   function saveSelectedPersonaId(personaId) {
@@ -1187,6 +1214,7 @@
           tryShowApplicationDetailForCurrentPage();
         }
       }
+      syncAnalyzeJobButtonState();
       return;
     }
     if (event.data?.type === 'applica-page-data') {

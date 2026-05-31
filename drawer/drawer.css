@@ -113,6 +113,19 @@ body {
   gap: 8px;
 }
 
+.drawer-profile-card--single #drawer-profile-picker-block,
+.drawer-profile-card--single #drawer-profile-resume-row {
+  display: none !important;
+}
+
+.drawer-profile-card--single #drawer-profile-resume-single {
+  display: block;
+}
+
+.drawer-profile-card--multi #drawer-profile-resume-single {
+  display: none !important;
+}
+
 .drawer-profile-card--single .drawer-profile-score-label {
   display: none;
 }

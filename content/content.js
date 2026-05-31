@@ -103,7 +103,10 @@
     const header = document.createElement('div');
     header.className = 'applica-drawer-header';
     header.innerHTML = `
-      <img src="${logoUrl}" alt="Applica" class="applica-drawer-logo" title="Applica" />
+      <div class="applica-drawer-header-brand">
+        <img src="${logoUrl}" alt="Applica" class="applica-drawer-logo" title="Applica" />
+        <p class="applica-drawer-tagline">Make your job hunt strategic.</p>
+      </div>
       <button type="button" class="applica-drawer-close" aria-label="Close drawer">&times;</button>
     `;
     header.querySelector('.applica-drawer-close').addEventListener('click', closeDrawer);
