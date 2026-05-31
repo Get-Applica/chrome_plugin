@@ -50,7 +50,6 @@
             resolve
           );
         });
-        chrome.runtime.sendMessage({ type: 'APPLICA_STORE_TOKEN_DONE', closeTab: true });
         window.close(); // Tab was opened by extension; no "tabs" permission needed
       } catch (err) {
         showCallbackError(err?.message || 'Request failed.');
@@ -128,17 +127,28 @@
     return drawerEl;
   }
 
-  function notifyDrawerOpened() {
+  function drawerIframeTargetOrigin() {
     try {
-      if (iframeEl?.contentWindow) {
-        iframeEl.contentWindow.postMessage(
-          { type: 'applica-drawer-opened', currentPageUrl: window.location.href },
-          '*'
-        );
-      }
+      const src = iframeEl?.src;
+      if (src) return new URL(src).origin;
+    } catch (_) {}
+    return '*';
+  }
+
+  function postToDrawer(targetWindow, message) {
+    if (!targetWindow) return;
+    try {
+      targetWindow.postMessage(message, drawerIframeTargetOrigin());
     } catch (e) {
-      console.debug('Applica: could not notify drawer', e);
+      console.debug('Applica: could not post to drawer', e);
     }
+  }
+
+  function notifyDrawerOpened() {
+    postToDrawer(iframeEl?.contentWindow, {
+      type: 'applica-drawer-opened',
+      currentPageUrl: window.location.href
+    });
   }
 
   function openDrawer() {
@@ -181,20 +191,18 @@
       }
       return;
     }
-    if (event.data?.type === 'applica-get-openings') {
-      handleGetOpenings(event.source, event.data.persona_id);
-    }
-    if (event.data?.type === 'applica-get-personas') {
-      handleGetPersonas(event.source);
-    }
     if (event.data?.type === 'applica-analyze-current-page') {
+      const replyOrigin = event.origin || drawerIframeTargetOrigin();
       try {
         const url = window.location.href;
         const html = document.documentElement.outerHTML;
-        event.source.postMessage({ type: 'applica-page-data', url, html }, '*');
+        event.source.postMessage({ type: 'applica-page-data', url, html }, replyOrigin);
       } catch (e) {
         console.debug('Applica: could not get page HTML', e);
-        event.source.postMessage({ type: 'applica-page-data', error: e?.message || 'Failed to get page' }, '*');
+        event.source.postMessage(
+          { type: 'applica-page-data', error: e?.message || 'Failed to get page' },
+          replyOrigin
+        );
       }
     }
     if (event.data?.type === 'applica-navigate-to' && event.data.url) {
@@ -213,7 +221,7 @@
       });
     }
     if (event.data?.type === 'applica-fill-form-with-data' && event.data.form_data) {
-      handleFillFormWithData(event.source, event.data.form_data);
+      handleFillFormWithData(event.source, event.data.form_data, event.origin);
     }
   });
 
@@ -221,10 +229,11 @@
    * Fill matching form fields on the page using form_data from the drawer.
    * The drawer (extension iframe) fetches form_details; we only run in page context to access the DOM.
    */
-  async function handleFillFormWithData(drawerWindow, formData) {
+  async function handleFillFormWithData(drawerWindow, formData, drawerOrigin) {
+    const targetOrigin = drawerOrigin || drawerIframeTargetOrigin();
     const sendResult = (result) => {
       try {
-        drawerWindow.postMessage({ type: 'applica-fill-form-result', ...result }, '*');
+        drawerWindow.postMessage({ type: 'applica-fill-form-result', ...result }, targetOrigin);
       } catch (e) {
         console.debug('Applica: could not send fill-form result', e);
       }
@@ -902,71 +911,6 @@
     }
     filledCount += fillBooleanRadioGroups(root, formData);
     return filledCount;
-  }
-
-  function isLoggedIn(cb) {
-    chrome.storage.local.get([STORAGE_KEYS.AUTH_TOKEN], (data) => {
-      cb(!!(data[STORAGE_KEYS.AUTH_TOKEN]));
-    });
-  }
-
-  function apiGet(path, cb) {
-    chrome.storage.local.get([STORAGE_KEYS.AUTH_TOKEN, STORAGE_KEYS.APP_ORIGIN], (data) => {
-      const token = data[STORAGE_KEYS.AUTH_TOKEN];
-      const origin = (data[STORAGE_KEYS.APP_ORIGIN] || DEFAULT_ORIGIN).replace(/\/$/, '');
-      if (!token) {
-        cb({ loggedIn: false });
-        return;
-      }
-      fetch(`${origin}${path}`, {
-        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
-      })
-        .then((res) => res.json())
-        .then((body) => cb({ loggedIn: true, data: body }))
-        .catch((err) => cb({ loggedIn: true, error: err.message }));
-    });
-  }
-
-  function fetchPersonas(cb) {
-    apiGet('/api/personas', cb);
-  }
-
-  function fetchOpenings(personaId, cb) {
-    if (!personaId) {
-      cb({ loggedIn: true, error: 'persona_id is required' });
-      return;
-    }
-    apiGet(`/api/openings?persona_id=${encodeURIComponent(personaId)}`, cb);
-  }
-
-  function showDrawerApiErrorBanner(targetWindow) {
-    try {
-      if (targetWindow) targetWindow.postMessage({ type: 'applica-show-api-error-banner' }, '*');
-    } catch (e) {
-      console.debug('Applica: could not show API error banner in drawer', e);
-    }
-  }
-
-  function handleGetPersonas(targetWindow) {
-    fetchPersonas((result) => {
-      try {
-        if (result.error) showDrawerApiErrorBanner(targetWindow);
-        targetWindow.postMessage({ type: 'applica-personas', ...result }, '*');
-      } catch (e) {
-        console.debug('Applica: could not post personas to drawer', e);
-      }
-    });
-  }
-
-  function handleGetOpenings(targetWindow, personaId) {
-    fetchOpenings(personaId, (result) => {
-      try {
-        if (result.error) showDrawerApiErrorBanner(targetWindow);
-        targetWindow.postMessage({ type: 'applica-openings', ...result }, '*');
-      } catch (e) {
-        console.debug('Applica: could not post openings to drawer', e);
-      }
-    });
   }
 
   // Re-open drawer on this page if we just navigated here from a drawer link
