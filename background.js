@@ -1,8 +1,8 @@
 /**
  * Applica Extension - Background Service Worker
- * Toggles the drawer when the extension icon is clicked. Job sites (Greenhouse, Workable, etc.)
- * need <all_urls> host_permissions for programmatic script injection on tab load / reopen.
- * localhost content_scripts cover the app OAuth callback only.
+ * Toggles the drawer when the extension icon is clicked. Job sites use activeTab + scripting
+ * (user gesture) for on-demand injection. host_permissions cover the Applica app origin only
+ * (API + sign-in). content_scripts on app.getapplica.com handle the login callback page.
  */
 
 const REOPEN_DRAWER_TS_KEY = 'applica_reopen_drawer_ts';

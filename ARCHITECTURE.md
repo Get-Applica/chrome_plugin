@@ -72,9 +72,9 @@ Share `lib/constants.js` for storage keys (already started).
 
 ### 6. Docs and manifest
 
-- `README.md` should stay aligned with token auth and v3 behavior (no iframe-login primary path).
-- `manifest.json` `content_scripts` only matches localhost (callback page); all other pages rely on `scripting` injection — document that for contributors.
-- `home.html` is unused; safe to delete.
+- `README.md` and `PRIVACY.md` describe permissions, data use, and production vs dev manifests.
+- **Production** `content_scripts` matches `https://app.getapplica.com/*` (callback); job boards use `scripting` + `activeTab` on icon click.
+- **Development** branches may use localhost hosts in `manifest.json` and `config.js` — do not ship those to the Chrome Web Store.
 
 ### 7. Testing
 
