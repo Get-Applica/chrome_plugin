@@ -1175,6 +1175,18 @@ a.drawer-worklist-item-resume-name:hover {
   white-space: nowrap;
 }
 
+.drawer-queue-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  min-width: fit-content;
+}
+
+.drawer-queue-item-remove {
+  flex-shrink: 0;
+}
+
 .drawer-queue-item-badge {
   display: inline-flex;
   align-items: center;
@@ -1194,6 +1206,27 @@ a.drawer-worklist-item-resume-name:hover {
 .drawer-queue-item--queued .drawer-queue-item-badge {
   background: rgba(226, 232, 240, 0.9);
   color: #475569;
+}
+
+.drawer-queue-item--incomplete {
+  background: rgba(255, 247, 237, 0.95);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+}
+
+.drawer-queue-item--incomplete .drawer-queue-item-dot {
+  background: #f59e0b;
+}
+
+.drawer-queue-item--incomplete .drawer-queue-item-badge {
+  background: rgba(251, 191, 36, 0.25);
+  color: #b45309;
+}
+
+.drawer-queue-item-hint {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: rgba(180, 83, 9, 0.85);
 }
 
 .drawer-footer {
