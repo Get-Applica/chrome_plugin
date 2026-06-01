@@ -127,27 +127,46 @@
     return drawerEl;
   }
 
-  function drawerIframeTargetOrigin() {
-    try {
-      const src = iframeEl?.src;
-      if (src) return new URL(src).origin;
-    } catch (_) {}
-    return '*';
+  function getDrawerContentWindow() {
+    const win = iframeEl?.contentWindow;
+    if (!win || win === window) return null;
+    return win;
   }
 
-  function postToDrawer(targetWindow, message) {
-    if (!targetWindow) return;
+  /**
+   * Parent → drawer postMessage target. Use '*' because before the extension document loads the
+   * iframe is about:blank with the host page's origin (e.g. jobs.ashbyhq.com) while iframe.src
+   * already points at chrome-extension:// — a specific target origin then throws. Incoming
+   * messages are gated by event.source === iframeEl.contentWindow.
+   */
+  const DRAWER_POST_MESSAGE_TARGET = '*';
+
+  function postToDrawer(message) {
+    const win = getDrawerContentWindow();
+    if (!win) return;
     try {
-      targetWindow.postMessage(message, drawerIframeTargetOrigin());
+      win.postMessage(message, DRAWER_POST_MESSAGE_TARGET);
     } catch (e) {
       console.debug('Applica: could not post to drawer', e);
     }
   }
 
+  function postPageDataToDrawer(drawerWindow, payload) {
+    if (!drawerWindow || drawerWindow === window) return;
+    const win = getDrawerContentWindow();
+    if (!win || drawerWindow !== win) return;
+    try {
+      drawerWindow.postMessage(payload, DRAWER_POST_MESSAGE_TARGET);
+    } catch (e) {
+      console.debug('Applica: could not post page data to drawer', e);
+    }
+  }
+
   function notifyDrawerOpened() {
-    postToDrawer(iframeEl?.contentWindow, {
+    postToDrawer({
       type: 'applica-drawer-opened',
-      currentPageUrl: window.location.href
+      currentPageUrl: window.location.href,
+      pageOrigin: window.location.origin
     });
   }
 
@@ -159,7 +178,7 @@
     overlayEl.classList.add('applica-overlay-visible');
     drawerEl.classList.add('applica-drawer-visible');
     document.documentElement.style.setProperty('--applica-drawer-width', `${DRAWER_WIDTH}px`);
-    notifyDrawerOpened();
+    /* notifyDrawerOpened runs on iframe load and applica-drawer-ready (extension doc must be loaded) */
   }
 
   function closeDrawer() {
@@ -192,17 +211,18 @@
       return;
     }
     if (event.data?.type === 'applica-analyze-current-page') {
-      const replyOrigin = event.origin || drawerIframeTargetOrigin();
+      const drawerWindow = getDrawerContentWindow();
+      if (!drawerWindow || event.source !== drawerWindow) return;
       try {
         const url = window.location.href;
         const html = document.documentElement.outerHTML;
-        event.source.postMessage({ type: 'applica-page-data', url, html }, replyOrigin);
+        postPageDataToDrawer(drawerWindow, { type: 'applica-page-data', url, html });
       } catch (e) {
         console.debug('Applica: could not get page HTML', e);
-        event.source.postMessage(
-          { type: 'applica-page-data', error: e?.message || 'Failed to get page' },
-          replyOrigin
-        );
+        postPageDataToDrawer(drawerWindow, {
+          type: 'applica-page-data',
+          error: e?.message || 'Failed to get page'
+        });
       }
     }
     if (event.data?.type === 'applica-navigate-to' && event.data.url) {
@@ -221,7 +241,7 @@
       });
     }
     if (event.data?.type === 'applica-fill-form-with-data' && event.data.form_data) {
-      handleFillFormWithData(event.source, event.data.form_data, event.origin);
+      handleFillFormWithData(event.source, event.data.form_data);
     }
   });
 
@@ -229,11 +249,15 @@
    * Fill matching form fields on the page using form_data from the drawer.
    * The drawer (extension iframe) fetches form_details; we only run in page context to access the DOM.
    */
-  async function handleFillFormWithData(drawerWindow, formData, drawerOrigin) {
-    const targetOrigin = drawerOrigin || drawerIframeTargetOrigin();
+  async function handleFillFormWithData(drawerWindow, formData) {
+    const win = getDrawerContentWindow();
     const sendResult = (result) => {
+      if (!win || drawerWindow !== win) return;
       try {
-        drawerWindow.postMessage({ type: 'applica-fill-form-result', ...result }, targetOrigin);
+        win.postMessage(
+          { type: 'applica-fill-form-result', ...result },
+          DRAWER_POST_MESSAGE_TARGET
+        );
       } catch (e) {
         console.debug('Applica: could not send fill-form result', e);
       }

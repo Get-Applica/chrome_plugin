@@ -26,6 +26,19 @@
   let analyzePageDataTimeoutId = null;
   let parentPageOrigin = '*';
 
+  function isHttpPageOrigin(origin) {
+    return (
+      typeof origin === 'string' &&
+      (origin.startsWith('http://') || origin.startsWith('https://'))
+    );
+  }
+
+  function rememberParentPageOrigin(origin) {
+    if (isHttpPageOrigin(origin)) {
+      parentPageOrigin = origin;
+    }
+  }
+
   function showApiErrorBanner() {
     if (!apiErrorBanner) return;
     if (apiErrorBannerTimeout) clearTimeout(apiErrorBannerTimeout);
@@ -49,7 +62,9 @@
 
   function postToParent(message) {
     if (window.parent === window) return;
-    window.parent.postMessage(message, parentPageOrigin);
+    // Host page origin is validated in content.js (event.source === iframe); '*' avoids
+    // mismatches when parentPageOrigin is stale after refresh or extension reload.
+    window.parent.postMessage(message, '*');
   }
 
   function clearAnalyzePageDataTimeout() {
@@ -1257,7 +1272,11 @@
     if (!isTrustedParentMessage(event)) return;
 
     if (event.data?.type === 'applica-drawer-opened') {
-      parentPageOrigin = event.origin || '*';
+      rememberParentPageOrigin(event.data.pageOrigin);
+      if (!isHttpPageOrigin(parentPageOrigin)) {
+        rememberParentPageOrigin(event.origin);
+      }
+      if (!isHttpPageOrigin(parentPageOrigin)) return;
       currentPageUrl = event.data.currentPageUrl || null;
       if (lastOpeningsPayload) renderOpenings(lastOpeningsPayload);
       if (lastApplicationsPayload) renderApplications(lastApplicationsPayload);
@@ -1284,12 +1303,15 @@
       return;
     }
     if (event.data?.type === 'applica-page-data') {
+      if (!isHttpPageOrigin(event.origin)) return;
       handlePageDataForAnalyze(event.data);
     }
     if (event.data?.type === 'applica-show-api-error-banner') {
+      if (!isHttpPageOrigin(event.origin)) return;
       showApiErrorBanner();
     }
     if (event.data?.type === 'applica-fill-form-result') {
+      if (!isHttpPageOrigin(event.origin)) return;
       const r = event.data;
       if (r.error) {
         showApiErrorBanner();
@@ -1390,7 +1412,7 @@
       setAnalyzeStatus('error', 'No profile selected.');
       return;
     }
-    submitOpeningFromPage(data.url, data.html, personaId, btn);
+    submitOpeningFromPage(data.url, data.html, personaId);
   }
 
   function setAnalyzeStatus(kind, message) {
@@ -1430,7 +1452,7 @@
     }
   }
 
-  async function submitOpeningFromPage(url, html, personaId, btn) {
+  async function submitOpeningFromPage(url, html, personaId) {
     currentAnalyzingOpening = { url, title: 'Analyzing job posting…', company: '' };
     renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
     try {
