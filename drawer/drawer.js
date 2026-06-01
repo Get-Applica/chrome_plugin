@@ -111,15 +111,71 @@
     return opening != null && Number(opening.current_match_score) > 0;
   }
 
+  function openingHasTitleAndCompany(opening) {
+    if (!opening) return false;
+    return (
+      opening.title != null &&
+      String(opening.title).trim() !== '' &&
+      opening.company != null &&
+      String(opening.company).trim() !== ''
+    );
+  }
+
+  /** All unscored openings in the processing queue, plus in-flight placeholder if not yet listed. */
+  function buildProcessingQueueRows(processing) {
+    const sorted = sortWithCurrentPageFirst(processing, openingMatchesCurrentPage);
+    if (!currentAnalyzingOpening) return sorted;
+
+    const analyzingUrl = currentAnalyzingOpening.url
+      ? normalizeUrlForCompare(currentAnalyzingOpening.url)
+      : null;
+    const analyzingId =
+      currentAnalyzingOpening.id != null ? String(currentAnalyzingOpening.id) : null;
+
+    const alreadyListed = sorted.some((o) => {
+      if (analyzingId && o.id != null && String(o.id) === analyzingId) return true;
+      if (analyzingUrl && o.url && normalizeUrlForCompare(o.url) === analyzingUrl) return true;
+      return false;
+    });
+
+    if (alreadyListed) return sorted;
+    return [currentAnalyzingOpening, ...sorted];
+  }
+
+  function isQueueItemInProgress(opening) {
+    if (!opening || openingHasScore(opening)) return false;
+    if (isOpeningScoring(opening)) return true;
+    if (!currentAnalyzingOpening) return false;
+    if (
+      currentAnalyzingOpening.id != null &&
+      opening.id != null &&
+      String(currentAnalyzingOpening.id) === String(opening.id)
+    ) {
+      return true;
+    }
+    if (
+      currentAnalyzingOpening.url &&
+      opening.url &&
+      normalizeUrlForCompare(currentAnalyzingOpening.url) === normalizeUrlForCompare(opening.url) &&
+      !openingHasTitleAndCompany(opening)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function queueItemStatusLabel(opening, inProgress) {
+    if (inProgress) return 'In Progress';
+    if (!openingHasTitleAndCompany(opening)) return 'Incomplete';
+    return 'Queued';
+  }
+
   function isOpeningScoring(opening) {
     if (!opening || openingHasScore(opening)) return false;
     if (pollingWatchOpeningId && String(pollingWatchOpeningId) === String(opening.id)) return true;
     const fromApi = findOpeningById(opening.id);
-    if (fromApi && !openingHasScore(fromApi)) {
-      const hasTitleAndCompany =
-        fromApi.title != null && String(fromApi.title).trim() !== '' &&
-        fromApi.company != null && String(fromApi.company).trim() !== '';
-      if (hasTitleAndCompany) return true;
+    if (fromApi && !openingHasScore(fromApi) && openingHasTitleAndCompany(fromApi)) {
+      return true;
     }
     if (
       currentAnalyzingOpening &&
@@ -217,17 +273,10 @@
           normalizeUrlForCompare(s.url) === normalizeUrlForCompare(currentAnalyzingOpening.url)
       );
     if (currentIsNowScored) currentAnalyzingOpening = null;
-    const hasTitleAndCompany = (o) =>
-      o.title != null && String(o.title).trim() !== '' &&
-      o.company != null && String(o.company).trim() !== '';
-    // In Progress row = only the placeholder (no title/company yet). Once it has title+company it belongs in Queued list only.
-    const placeholderOnly = currentAnalyzingOpening && !hasTitleAndCompany(currentAnalyzingOpening);
-    const queuedItems = processing.filter((p) => hasTitleAndCompany(p));
-    const sortedQueued = sortWithCurrentPageFirst(queuedItems, openingMatchesCurrentPage);
-    const queueRows = (placeholderOnly ? [currentAnalyzingOpening] : []).concat(sortedQueued);
+    const queueRows = buildProcessingQueueRows(processing);
 
     if (queueRows.length > 0) {
-      queueEl.innerHTML = queueRows.map((o, i) => queueItemHtml(o, placeholderOnly && i === 0)).join('');
+      queueEl.innerHTML = queueRows.map((o) => queueItemHtml(o, isQueueItemInProgress(o))).join('');
       if (getDrawerLayoutMode() === DrawerLayoutMode.MAIN) {
         scrollHighlightedWorklistItemIntoView(queueEl);
       }
@@ -978,30 +1027,74 @@
 
   function queueItemHtml(o, isInProgress) {
     const inProgress = !!isInProgress;
-    const title = [o.company, o.title].filter(Boolean).join(' - ') || '';
-    const titleEscaped = escapeHtml(title || 'Job posting');
+    const hasMeta = openingHasTitleAndCompany(o);
+    const titleText = hasMeta
+      ? [o.company, o.title].filter(Boolean).join(' - ')
+      : o.url || 'Job posting';
+    const titleEscaped = escapeHtml(titleText);
     const urlDisplay = o.url ? escapeHtml(o.url) : '';
-    const badgeText = inProgress ? 'In Progress' : 'Queued';
-    const modifier = inProgress ? 'drawer-queue-item--in-progress' : 'drawer-queue-item--queued';
+    const badgeText = queueItemStatusLabel(o, inProgress);
+    const incomplete = !inProgress && !hasMeta;
+    const modifier = inProgress
+      ? 'drawer-queue-item--in-progress'
+      : incomplete
+        ? 'drawer-queue-item--incomplete'
+        : 'drawer-queue-item--queued';
     const currentClass = openingMatchesCurrentPage(o) ? ' drawer-queue-item-current' : '';
     const dataUrl = o.url ? ' data-url="' + escapeHtml(o.url) + '"' : '';
-    const urlRow = urlDisplay
-      ? '<p class="drawer-queue-item-url">' + urlDisplay + '</p>'
-      : '';
+    const dataOpeningId =
+      o.id != null ? ' data-opening-id="' + escapeHtml(String(o.id)) + '"' : '';
+    const urlRow =
+      hasMeta && urlDisplay
+        ? '<p class="drawer-queue-item-url">' + urlDisplay + '</p>'
+        : incomplete
+          ? '<p class="drawer-queue-item-hint">Processing did not finish — remove and try again</p>'
+          : '';
+    const removeBtn = queueItemRemoveButtonHtml(o, inProgress);
     return (
       '<div class="drawer-queue-item ' +
       modifier +
       currentClass +
       '"' +
       dataUrl +
+      dataOpeningId +
       '><div class="drawer-queue-item-main"><div class="drawer-queue-item-dot"></div><div class="drawer-queue-item-text"><p class="drawer-queue-item-title">' +
       titleEscaped +
       '</p>' +
       urlRow +
-      '</div></div><span class="drawer-queue-item-badge">' +
+      '</div></div><div class="drawer-queue-item-actions"><span class="drawer-queue-item-badge">' +
       escapeHtml(badgeText) +
-      '</span></div>'
+      '</span>' +
+      removeBtn +
+      '</div></div>'
     );
+  }
+
+  function queueItemRemoveButtonHtml(o, inProgress) {
+    const btnClass = 'drawer-worklist-item-delete drawer-queue-item-remove';
+    if (o.id != null) {
+      return (
+        '<button type="button" class="' +
+        btnClass +
+        '" aria-label="Remove from processing queue" data-opening-id="' +
+        escapeHtml(String(o.id)) +
+        '">' +
+        trashIconSvg +
+        '</button>'
+      );
+    }
+    if (inProgress && o.url) {
+      return (
+        '<button type="button" class="' +
+        btnClass +
+        '" aria-label="Cancel analyzing this job" data-cancel-queue="true" data-url="' +
+        escapeHtml(o.url) +
+        '">' +
+        trashIconSvg +
+        '</button>'
+      );
+    }
+    return '';
   }
 
   function openingRowHtml(o) {
@@ -1512,12 +1605,49 @@
     }
   }
 
+  function handleCancelInProgressQueueItem(url) {
+    if (!url) return;
+    const normalized = normalizeUrlForCompare(url);
+    if (
+      currentAnalyzingOpening?.url &&
+      normalizeUrlForCompare(currentAnalyzingOpening.url) === normalized
+    ) {
+      currentAnalyzingOpening = null;
+    }
+    stopOpeningsPoll();
+    renderOpenings(lastOpeningsPayload || { loggedIn: true, data: { openings: [], limits: {} } });
+    syncAnalyzeJobButtonState();
+  }
+
   async function handleDeleteQueueItem(openingId) {
     const personaId = personaPicker?.value;
     if (!personaId) return;
+    const confirmed = window.confirm('Remove this job from your processing queue?');
+    if (!confirmed) return;
     try {
       await window.ApplicaAPI.appFetchJson(`/api/openings/${openingId}`, { method: 'DELETE' });
+      if (
+        currentAnalyzingOpening?.id != null &&
+        String(currentAnalyzingOpening.id) === String(openingId)
+      ) {
+        currentAnalyzingOpening = null;
+      } else if (currentAnalyzingOpening) {
+        const removed = (lastOpeningsPayload?.data?.openings || []).find(
+          (o) => o != null && String(o.id) === String(openingId)
+        );
+        if (
+          removed?.url &&
+          currentAnalyzingOpening.url &&
+          normalizeUrlForCompare(removed.url) === normalizeUrlForCompare(currentAnalyzingOpening.url)
+        ) {
+          currentAnalyzingOpening = null;
+        }
+      }
+      if (selectedOpening?.id != null && String(selectedOpening.id) === String(openingId)) {
+        showOpeningsList();
+      }
       fetchOpenings(personaId);
+      syncAnalyzeJobButtonState();
     } catch (err) {
       showApiErrorBanner();
       setAnalyzeStatus('error', err?.message || 'Could not remove.');
@@ -1693,6 +1823,30 @@
     if (personaId) fetchApplications(personaId, { silent: true });
   }
 
+  const scoreQueueList = document.getElementById('score-queue-list');
+  if (scoreQueueList) {
+    scoreQueueList.addEventListener('click', (e) => {
+      const queueRemoveBtn = e.target.closest('button.drawer-queue-item-remove');
+      if (queueRemoveBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (queueRemoveBtn.getAttribute('data-cancel-queue') === 'true') {
+          handleCancelInProgressQueueItem(queueRemoveBtn.getAttribute('data-url'));
+        } else {
+          const openingId = queueRemoveBtn.getAttribute('data-opening-id');
+          if (openingId) handleDeleteQueueItem(openingId);
+        }
+        return;
+      }
+      if (e.target.closest('.drawer-queue-item-actions')) return;
+      const queueItem = e.target.closest('.drawer-queue-item[data-url]');
+      if (queueItem) {
+        e.preventDefault();
+        openUrlInNewTab(queueItem.getAttribute('data-url'));
+      }
+    });
+  }
+
   if (scoreQueueSection) {
     scoreQueueSection.addEventListener('click', (e) => {
       const worklistDeleteBtn = e.target.closest('button.drawer-worklist-item-delete');
@@ -1745,11 +1899,6 @@
         e.stopPropagation();
         openUrlInNewTab(link.href);
         return;
-      }
-      const queueItem = e.target.closest('.drawer-queue-item[data-url]');
-      if (queueItem) {
-        e.preventDefault();
-        openUrlInNewTab(queueItem.getAttribute('data-url'));
       }
     });
   }
